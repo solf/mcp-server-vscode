@@ -1,3 +1,9 @@
+# Exclude basic Eclipse files.
+**/.project
+**/.classpath
+**/.settings/
+
+
 out
 dist
 node_modules
