@@ -173,8 +173,14 @@ async function ensureLanguageServersReady(): Promise<void> {
     // Open a few files to trigger language servers
     for (let i = 0; i < Math.min(3, workspaceFiles.length); i++) {
       try {
+        // Opening is what activates a language server -- it puts the document in
+        // VS Code's model and fires onDidOpenTextDocument, which is what
+        // onLanguage:* activation and the language client's didOpen hang off.
+        // Deliberately not shown: this used to call showTextDocument with
+        // preview:false, which forced these arbitrarily-globbed files open as
+        // permanent editor tabs on every cold start, for the user to close by
+        // hand. Showing adds nothing the language server can see.
         const document = await vscode.workspace.openTextDocument(workspaceFiles[i]);
-        await vscode.window.showTextDocument(document, { preview: false, preserveFocus: true });
         initializedLanguages.add(document.languageId);
       } catch {
         // Skip if can't open document
