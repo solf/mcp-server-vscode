@@ -55,8 +55,13 @@
       "properties": {
         "vscode-mcp.port": {
           "type": "number",
-          "default": 8991,
-          "description": "Port for the MCP server"
+          "default": 0,
+          "description": "Port for the MCP server. 0 (the default) lets the OS pick a free one, so every window gets its own and clients find it through the discovery registry. Set a specific port only if you need a fixed one -- startup then fails if that port is already taken, rather than quietly using a different one."
+        },
+        "vscode-mcp.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the MCP server automatically when the window opens. Disable to start it manually from the status bar."
         }
       }
     }
@@ -74,6 +79,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
+    "deploy:client": "node scripts/deploy-client.js",
     "start:mcp": "node ./out/mcp/standalone-server.js"
   },
   "devDependencies": {
@@ -90,6 +96,6 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.13.2"
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }
