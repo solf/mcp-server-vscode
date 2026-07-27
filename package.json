@@ -67,7 +67,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "clean": "rm -rf out",
-    "compile": "tsc -p ./",
+    "compile": "node scripts/gen-build-info.js && tsc -p ./",
     "watch": "tsc -watch -p ./",
     "prepare": "npm run compile",
     "pretest": "npm run compile && npm run lint",
