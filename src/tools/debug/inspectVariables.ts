@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_inspectVariablesTool: Tool = {
@@ -40,7 +41,9 @@ export const debug_inspectVariablesTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there are no variables to inspect. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -55,7 +58,10 @@ export const debug_inspectVariablesTool: Tool = {
         if (threads.length > 0) {
           targetThreadId = threads[0].id;
         } else {
-          return format === 'compact' ? { error: 'no_threads' } : { error: 'No threads available' };
+          throw new IndeterminateError(
+            'The debug session reports no threads, so there are no variables to inspect. ' +
+              'This usually means it has not started or is not paused.'
+          );
         }
       }
 
@@ -70,9 +76,10 @@ export const debug_inspectVariablesTool: Tool = {
         if (stackResponse.stackFrames && stackResponse.stackFrames.length > 0) {
           targetFrameId = stackResponse.stackFrames[0].id;
         } else {
-          return format === 'compact'
-            ? { error: 'no_frames' }
-            : { error: 'No stack frames available' };
+          throw new IndeterminateError(
+            'No stack frames available, so there is no scope to inspect. The debugger is ' +
+              'probably running rather than paused at a breakpoint.'
+          );
         }
       }
 
@@ -116,47 +123,48 @@ export const debug_inspectVariablesTool: Tool = {
 
       if (format === 'compact') {
         // Return compact format: { scopeName: [[name, value, type], ...] }
-        const result: any = {
-          varFormat: '[name, value, type]',
-        };
-
+        const byScope: any = {};
         for (const scopeData of variablesByScope) {
-          result[scopeData.scope] = scopeData.variables.map((v: any) => [
+          byScope[scopeData.scope] = scopeData.variables.map((v: any) => [
             v.name,
             v.value,
             v.type || 'unknown',
           ]);
         }
 
-        return result;
+        return ok(byScope, {
+          subject: { requested: `frame ${targetFrameId} (${scope})` },
+          format: '[name, value, type]',
+        });
       }
 
       // Detailed format
-      return {
-        variables: variablesByScope.map((scopeData) => ({
-          scope: scopeData.scope,
-          variables: scopeData.variables.map((v: any) => ({
-            name: v.name,
-            value: v.value,
-            type: v.type,
-            evaluateName: v.evaluateName,
-            variablesReference: v.variablesReference,
-            namedVariables: v.namedVariables,
-            indexedVariables: v.indexedVariables,
+      return ok(
+        {
+          variables: variablesByScope.map((scopeData) => ({
+            scope: scopeData.scope,
+            variables: scopeData.variables.map((v: any) => ({
+              name: v.name,
+              value: v.value,
+              type: v.type,
+              evaluateName: v.evaluateName,
+              variablesReference: v.variablesReference,
+              namedVariables: v.namedVariables,
+              indexedVariables: v.indexedVariables,
+            })),
           })),
-        })),
-        frameId: targetFrameId,
-        threadId: targetThreadId,
-      };
+          frameId: targetFrameId,
+          threadId: targetThreadId,
+        },
+        { subject: { requested: `frame ${targetFrameId} (${scope})` } }
+      );
     } catch (error: any) {
-      if (format === 'compact') {
-        return { error: 'inspect_failed', message: error.message };
+      // An IndeterminateError from inside the try is a precondition failure, not a
+      // fault -- rethrow it so it stays distinguishable instead of being flattened.
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-      return {
-        error: 'Failed to inspect variables',
-        details: error.message,
-        hint: 'Ensure the debugger is paused at a breakpoint',
-      };
+      throw new Error(`Failed to inspect variables: ${error?.message ?? String(error)}`);
     }
   },
 };

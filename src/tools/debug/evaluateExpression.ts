@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_evaluateExpressionTool: Tool = {
@@ -40,14 +41,14 @@ export const debug_evaluateExpressionTool: Tool = {
     const { expression, threadId, frameId, context = 'repl', format = 'compact' } = args;
 
     if (!expression) {
-      return format === 'compact'
-        ? { error: 'missing_expression' }
-        : { error: 'Expression is required' };
+      throw new Error('An expression is required.');
     }
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is nothing to evaluate against. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -65,9 +66,10 @@ export const debug_evaluateExpressionTool: Tool = {
           if (threads.length > 0) {
             targetThreadId = threads[0].id;
           } else {
-            return format === 'compact'
-              ? { error: 'no_threads' }
-              : { error: 'No threads available' };
+            throw new IndeterminateError(
+              'The debug session reports no threads, so there is no frame to evaluate in. ' +
+                'This usually means it has not started or is not paused.'
+            );
           }
         }
 
@@ -90,53 +92,38 @@ export const debug_evaluateExpressionTool: Tool = {
         context,
       });
 
-      if (format === 'compact') {
-        return {
-          result: evalResponse.result,
-          type: evalResponse.type || 'unknown',
-          variablesReference: evalResponse.variablesReference || 0,
-        };
-      }
-
-      // Detailed format
-      return {
-        expression,
-        result: evalResponse.result,
-        type: evalResponse.type,
-        presentationHint: evalResponse.presentationHint,
-        variablesReference: evalResponse.variablesReference,
-        namedVariables: evalResponse.namedVariables,
-        indexedVariables: evalResponse.indexedVariables,
-        memoryReference: evalResponse.memoryReference,
-        context,
-        frameId: targetFrameId,
-      };
+      // The expression is the subject, so it is echoed back: a bare value with
+      // no record of what produced it is hard to trust in a transcript.
+      return ok(
+        format === 'compact'
+          ? {
+              result: evalResponse.result,
+              type: evalResponse.type || 'unknown',
+              variablesReference: evalResponse.variablesReference || 0,
+            }
+          : {
+              result: evalResponse.result,
+              type: evalResponse.type,
+              presentationHint: evalResponse.presentationHint,
+              variablesReference: evalResponse.variablesReference,
+              namedVariables: evalResponse.namedVariables,
+              indexedVariables: evalResponse.indexedVariables,
+              memoryReference: evalResponse.memoryReference,
+              context,
+              frameId: targetFrameId,
+            },
+        { subject: { requested: expression, resolved: [`frame ${targetFrameId}`] } }
+      );
     } catch (error: any) {
-      // Check if it's an evaluation error (e.g., undefined variable)
-      if (error.message && error.message.includes('evaluate')) {
-        if (format === 'compact') {
-          return {
-            error: 'eval_error',
-            result: error.message,
-            expression,
-          };
-        }
-        return {
-          error: 'Evaluation failed',
-          expression,
-          details: error.message,
-        };
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-
-      if (format === 'compact') {
-        return { error: 'eval_failed', message: error.message };
-      }
-      return {
-        error: 'Failed to evaluate expression',
-        expression,
-        details: error.message,
-        hint: 'Ensure the debugger is paused and the expression is valid',
-      };
+      // Both branches used to return successfully, so a failed evaluation and a
+      // real value were the same kind of answer to the caller.
+      throw new Error(
+        `Could not evaluate '${expression}': ${error?.message ?? String(error)}. ` +
+          'Check the debugger is paused and the expression is valid in this frame.'
+      );
     }
   },
 };

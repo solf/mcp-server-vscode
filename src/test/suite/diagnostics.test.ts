@@ -33,11 +33,22 @@ suite('Diagnostics Tool Tests', () => {
       uri: uri.toString(),
     });
 
-    assert.ok(result.diagnostics, 'Should return diagnostics');
-    assert.ok(Array.isArray(result.diagnostics), 'Should return array of diagnostics');
+    // The envelope must identify what it actually answered about, so an empty
+    // result can be read as "this file is clean" rather than any of the other
+    // things an empty array used to mean.
+    assert.strictEqual(result.status, 'ok', 'File exists and was analysed');
+    assert.ok(result.scope, 'Response must name the workspace that answered');
+    assert.deepStrictEqual(
+      result.subject.resolved,
+      [uri.fsPath],
+      'Resolved subject should be the file we asked about'
+    );
+
+    assert.ok(result.results, 'Should return diagnostics');
+    assert.ok(Array.isArray(result.results), 'Should return array of diagnostics');
 
     // Find the type error we intentionally added
-    const typeError = result.diagnostics.find(
+    const typeError = result.results.find(
       (d: any) =>
         d.message.includes('Type') &&
         d.message.includes('string') &&
@@ -57,10 +68,10 @@ suite('Diagnostics Tool Tests', () => {
       uri: uri.toString(),
     });
 
-    assert.ok(result.diagnostics, 'Should return diagnostics');
+    assert.ok(result.results, 'Should return diagnostics');
 
     // TypeScript might report unused variable
-    const unusedVar = result.diagnostics.find(
+    const unusedVar = result.results.find(
       (d: any) =>
         d.message.includes('unused') ||
         (d.message.includes('declared') && d.message.includes('never'))
@@ -70,7 +81,7 @@ suite('Diagnostics Tool Tests', () => {
     assert.ok(unusedVar, 'Should find unused variable diagnostic');
 
     // Find the specific unusedVariable diagnostic
-    const unusedVariableDiag = result.diagnostics.find((d: any) =>
+    const unusedVariableDiag = result.results.find((d: any) =>
       d.message.includes("'unusedVariable'")
     );
     assert.ok(unusedVariableDiag, 'Should find unusedVariable diagnostic specifically');
@@ -84,11 +95,11 @@ suite('Diagnostics Tool Tests', () => {
       uri: uri.toString(),
     });
 
-    assert.ok(result.diagnostics, 'Should return diagnostics');
-    assert.ok(Array.isArray(result.diagnostics), 'Should return array');
+    assert.ok(result.results, 'Should return diagnostics');
+    assert.ok(Array.isArray(result.results), 'Should return array');
 
     // math.ts should have no errors
-    const errors = result.diagnostics.filter((d: any) => d.severity === 'Error');
+    const errors = result.results.filter((d: any) => d.severity === 'Error');
     assert.strictEqual(errors.length, 0, 'math.ts should have no errors');
   });
 
@@ -98,15 +109,15 @@ suite('Diagnostics Tool Tests', () => {
       format: 'detailed',
     });
 
-    assert.ok(result.diagnostics, 'Should return diagnostics');
+    assert.ok(result.results, 'Should return diagnostics');
     assert.ok(
-      typeof result.diagnostics === 'object',
+      typeof result.results === 'object',
       'Should return object with file URIs as keys'
     );
 
     // Should have diagnostics for app.ts
     // const appTsUri = getTestFileUri('app.ts').toString();
-    const hasDiagnosticsForApp = Object.keys(result.diagnostics).some((uri) =>
+    const hasDiagnosticsForApp = Object.keys(result.results).some((uri) =>
       uri.endsWith('app.ts')
     );
 
@@ -121,9 +132,9 @@ suite('Diagnostics Tool Tests', () => {
       uri: uri.toString(),
     });
 
-    assert.ok(result.diagnostics, 'Should return diagnostics');
+    assert.ok(result.results, 'Should return diagnostics');
 
-    const diagnostic = result.diagnostics.find((d: any) => d.severity === 'Error');
+    const diagnostic = result.results.find((d: any) => d.severity === 'Error');
     if (diagnostic) {
       assert.ok(diagnostic.source, 'Diagnostic should have source');
       assert.ok(
@@ -141,7 +152,7 @@ suite('Diagnostics Tool Tests', () => {
       uri: uri.toString(),
     });
 
-    const typeError = result.diagnostics.find(
+    const typeError = result.results.find(
       (d: any) => d.message.includes('Type') && d.severity === 'Error'
     );
 
@@ -154,7 +165,7 @@ suite('Diagnostics Tool Tests', () => {
     }
   });
 
-  test('should handle non-existent file', async () => {
+  test('should report a non-existent file as not-found, not as clean', async () => {
     const uri = vscode.Uri.file('/non/existent/file.ts');
 
     const result = await callTool('diagnostics', {
@@ -162,12 +173,25 @@ suite('Diagnostics Tool Tests', () => {
       uri: uri.toString(),
     });
 
-    assert.ok(result.diagnostics, 'Should return diagnostics');
-    assert.ok(Array.isArray(result.diagnostics), 'Should return array');
-    assert.strictEqual(
-      result.diagnostics.length,
-      0,
-      'Should return empty array for non-existent file'
+    // This used to return an empty array, indistinguishable from a file with no
+    // problems -- the whole reason the contract exists. A missing file must say
+    // so rather than reporting itself clean.
+    assert.strictEqual(result.status, 'not-found', 'Missing file must be not-found');
+    assert.deepStrictEqual(result.subject.resolved, [], 'Nothing should have resolved');
+    assert.ok(result.reason, 'not-found must explain itself');
+    assert.strictEqual(result.results.length, 0, 'No diagnostics to report');
+  });
+
+  test('should refuse to call an unanalysed file clean', async () => {
+    // A file that exists but no language server has looked at. Reporting zero
+    // problems for it would be a fabricated answer, so the tool errors instead;
+    // callTool surfaces that as a rejection.
+    const uri = getTestFileUri('../.gitignore');
+
+    await assert.rejects(
+      () => callTool('diagnostics', { format: 'detailed', uri: uri.toString() }),
+      (err: Error) => /has not been analysed/.test(err.message),
+      'Unanalysed file must be reported as indeterminate, not as clean'
     );
   });
 });

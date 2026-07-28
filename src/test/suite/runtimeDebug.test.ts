@@ -26,80 +26,42 @@ suite('Runtime Debug Tools Tests', () => {
     }
   });
 
-  test('should handle pause/continue when no debug session', async () => {
-    // Test pause
-    const pauseResult = await callTool('debug_pauseExecution', {
-      format: 'detailed',
-    });
-
-    assert.ok(pauseResult.error, 'Should have error when no session');
-    assert.ok(pauseResult.error.includes('No active debug session'), 'Should mention no session');
-
-    // Test continue
-    const continueResult = await callTool('debug_continueExecution', {
-      format: 'detailed',
-    });
-
-    assert.ok(continueResult.error, 'Should have error when no session');
-    assert.ok(
-      continueResult.error.includes('No active debug session'),
-      'Should mention no session'
+  /** Asserts a runtime debug tool fails because nothing is being debugged. */
+  async function expectNoSession(tool: string, args: Record<string, unknown> = {}): Promise<void> {
+    await assert.rejects(
+      () => callTool(tool, { format: 'detailed', ...args }),
+      (err: Error) => /No active debug session/.test(err.message),
+      `${tool} should report the missing session as a failure`
     );
+  }
+
+  test('should handle pause/continue when no debug session', async () => {
+    await expectNoSession('debug_pauseExecution');
+    await expectNoSession('debug_continueExecution');
   });
 
   test('should handle step controls when no debug session', async () => {
-    // Test step over
-    const stepOverResult = await callTool('debug_stepOver', {
-      format: 'detailed',
-    });
-
-    assert.ok(stepOverResult.error, 'Should have error when no session');
-
-    // Test step into
-    const stepIntoResult = await callTool('debug_stepInto', {
-      format: 'detailed',
-    });
-
-    assert.ok(stepIntoResult.error, 'Should have error when no session');
-
-    // Test step out
-    const stepOutResult = await callTool('debug_stepOut', {
-      format: 'detailed',
-    });
-
-    assert.ok(stepOutResult.error, 'Should have error when no session');
+    await expectNoSession('debug_stepOver');
+    await expectNoSession('debug_stepInto');
+    await expectNoSession('debug_stepOut');
   });
 
   test('should handle call stack when no debug session', async () => {
-    const result = await callTool('debug_getCallStack', {
-      format: 'detailed',
-    });
-
-    assert.ok(result.error, 'Should have error when no session');
-    assert.ok(result.error.includes('No active debug session'), 'Should mention no session');
+    await expectNoSession('debug_getCallStack');
   });
 
   test('should handle variable inspection when no debug session', async () => {
-    const result = await callTool('debug_inspectVariables', {
-      scope: 'locals',
-      format: 'detailed',
-    });
-
-    assert.ok(result.error, 'Should have error when no session');
-    assert.ok(result.error.includes('No active debug session'), 'Should mention no session');
+    await expectNoSession('debug_inspectVariables', { scope: 'locals' });
   });
 
   test('should handle expression evaluation when no debug session', async () => {
-    const result = await callTool('debug_evaluateExpression', {
-      expression: 'myVariable',
-      format: 'detailed',
-    });
-
-    assert.ok(result.error, 'Should have error when no session');
-    assert.ok(result.error.includes('No active debug session'), 'Should mention no session');
+    await expectNoSession('debug_evaluateExpression', { expression: 'myVariable' });
   });
 
   test('should validate expression parameter', async () => {
+    // Schema validation rejects the request before the tool runs, so this comes
+    // back as a 400 the helper surfaces as {error} -- distinct from the tool
+    // running and failing, which rejects.
     const result = await callTool('debug_evaluateExpression', {
       format: 'detailed',
     } as any);
@@ -112,14 +74,16 @@ suite('Runtime Debug Tools Tests', () => {
     );
   });
 
-  test('should handle compact format for runtime tools', async () => {
-    // Test compact error format
-    const result = await callTool('debug_getCallStack', {
-      format: 'compact',
-    });
-
-    assert.ok(result.error, 'Should have error');
-    assert.strictEqual(result.error, 'no_session', 'Should use compact error format');
+  test('should report the missing session identically in either format', async () => {
+    // 'compact' used to yield the bare token 'no_session' and 'detailed' a
+    // sentence. One condition should not have two encodings, and neither should
+    // masquerade as a successful result.
+    await expectNoSession('debug_getCallStack');
+    await assert.rejects(
+      () => callTool('debug_getCallStack', { format: 'compact' }),
+      (err: Error) => /No active debug session/.test(err.message),
+      'compact format must fail the same way'
+    );
   });
 
   // Note: Full integration tests with actual debug sessions would require:

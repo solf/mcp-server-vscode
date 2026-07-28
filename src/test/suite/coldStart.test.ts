@@ -45,14 +45,14 @@ suite('Cold Start Tests', () => {
     assert.ok(!result.error, `Should not have error: ${result.error}`);
 
     // Should find the symbol
-    assert.ok(result.symbol || result.matches, 'Should find the symbol');
+    assert.ok(result.symbol || result.results, 'Should find the symbol');
 
     // Should have hover information
-    if (result.hover) {
-      assert.ok(result.hover.length > 0, 'Should have hover contents');
-    } else if (result.matches) {
-      assert.ok(result.matches.length > 0, 'Should have matches');
-      assert.ok(result.matches[0].hover, 'First match should have hover info');
+    if (result.results[0]?.hover) {
+      assert.ok(result.results[0]?.hover.length > 0, 'Should have hover contents');
+    } else if (result.results) {
+      assert.ok(result.results.length > 0, 'Should have matches');
+      assert.ok(result.results[0].hover, 'First match should have hover info');
     }
   }).timeout(30000);
 
@@ -77,9 +77,9 @@ suite('Cold Start Tests', () => {
     console.log('Result:', JSON.stringify(result, null, 2));
 
     // The test passes if we got a "not found" message (means search ran)
-    if (result.message && result.message.includes('not found')) {
+    if (result.reason && result.reason.includes('not found')) {
       console.log('No symbol found in test workspace - this is acceptable for cold start test');
-      assert.deepStrictEqual(result.definitions, [], 'Should return empty definitions array');
+      assert.deepStrictEqual(result.results, [], 'Should return empty definitions array');
       return;
     }
 
@@ -87,8 +87,8 @@ suite('Cold Start Tests', () => {
     assert.ok(!result.error, `Should not have error: ${result.error}`);
 
     // Should find the definition(s)
-    assert.ok(result.definitions, 'Should have definitions array');
-    assert.ok(result.definitions.length > 0, 'Should find at least one definition');
+    assert.ok(result.results, 'Should have definitions array');
+    assert.ok(result.results.length > 0, 'Should find at least one definition');
   }).timeout(30000);
 
   test('references should work on first call after cold start', async () => {
@@ -112,10 +112,10 @@ suite('Cold Start Tests', () => {
     console.log('Result:', JSON.stringify(result, null, 2));
 
     // The test passes if we got a "not found" message (means search ran)
-    if (result.message && result.message.includes('not found')) {
+    if (result.reason && result.reason.includes('not found')) {
       console.log('No symbol found in test workspace - this is acceptable for cold start test');
-      assert.strictEqual(result.totalReferences, 0, 'Should have zero references');
-      assert.deepStrictEqual(result.references, [], 'Should return empty references array');
+      assert.strictEqual(result.results.length, 0, 'Should have zero references');
+      assert.deepStrictEqual(result.results, [], 'Should return empty references array');
       return;
     }
 
@@ -123,8 +123,8 @@ suite('Cold Start Tests', () => {
     assert.ok(!result.error, `Should not have error: ${result.error}`);
 
     // Should find references
-    assert.ok(result.references, 'Should have references array');
-    assert.ok(result.totalReferences > 0, 'Should find at least one reference');
+    assert.ok(result.results, 'Should have references array');
+    assert.ok(result.results.length > 0, 'Should find at least one reference');
   }).timeout(30000);
 
   test('second call should be fast', async () => {
@@ -150,6 +150,6 @@ suite('Cold Start Tests', () => {
     }
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.symbol || result.matches, 'Should find the symbol');
+    assert.ok(result.symbol || result.results, 'Should find the symbol');
   }).timeout(5000);
 });

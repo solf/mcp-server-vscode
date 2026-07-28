@@ -68,16 +68,16 @@ export function processOrder() {
         newName: 'computeSum',
       });
 
-      assert.strictEqual(result.success, true, 'Rename should succeed');
+      assert.strictEqual(result.status, 'ok', 'Rename should succeed');
       // Symbol names might include () for functions
       assert.ok(
-        result.renamedSymbol.oldName === 'calculateTotal' ||
-          result.renamedSymbol.oldName === 'calculateTotal()',
-        `Expected 'calculateTotal' or 'calculateTotal()' but got '${result.renamedSymbol.oldName}'`
+        result.results.renamed.oldName === 'calculateTotal' ||
+          result.results.renamed.oldName === 'calculateTotal()',
+        `Expected 'calculateTotal' or 'calculateTotal()' but got '${result.results.renamed.oldName}'`
       );
-      assert.strictEqual(result.renamedSymbol.newName, 'computeSum');
-      assert.ok(result.filesChanged > 0, 'Should have changed files');
-      assert.ok(result.totalEdits >= 2, 'Should have at least 2 edits (definition + usage)');
+      assert.strictEqual(result.results.renamed.newName, 'computeSum');
+      assert.ok(result.results.filesChanged > 0, 'Should have changed files');
+      assert.ok(result.results.totalEdits >= 2, 'Should have at least 2 edits (definition + usage)');
     });
 
     test('should provide suggestions for misspelled symbol', async () => {
@@ -93,18 +93,17 @@ export function processOrder() {
         newName: 'computeSum',
       });
 
-      assert.ok(result.error, 'Should return an error');
-      assert.ok(result.suggestions, 'Should provide suggestions');
-      assert.ok(result.suggestions.length > 0, 'Should have at least one suggestion');
+      // A misspelling means the symbol does not exist -- a real answer, not a
+      // failure. The near-misses come back as results so the caller can correct
+      // the name, and `reason` states plainly that nothing was renamed.
+      assert.strictEqual(result.status, 'not-found', 'Misspelled symbol must be not-found');
+      assert.ok(result.reason.includes('nothing renamed'), 'Must confirm nothing was written');
+      assert.ok(result.results.length > 0, 'Should have at least one suggestion');
       assert.ok(
-        result.suggestions.some(
+        result.results.some(
           (s: any) => s.name === 'calculateTotal' || s.name === 'calculateTotal()'
         ),
         'Should suggest the correct name'
-      );
-      assert.ok(
-        result.hint.includes('calculateTotal'),
-        `Hint should mention the correct name. Got hint: "${result.hint}"`
       );
     });
 
@@ -122,18 +121,18 @@ export function processOrder() {
       await createTempFile('class-test.ts', content1);
       await createTempFile('function-test.ts', content2);
 
-      // Test with ambiguous symbol name
-      const result = await callTool('refactor_rename', {
-        symbol: 'add',
-        newName: 'sum',
-      });
-
-      assert.ok(result.multipleMatches, 'Should indicate multiple matches');
-      assert.ok(result.matches, 'Should provide match details');
-      assert.ok(result.matches.length >= 2, 'Should have at least 2 matches');
-      assert.ok(
-        result.hint.includes('qualified name'),
-        'Hint should suggest using qualified names'
+      // This tool writes to disk. An ambiguous name used to come back as a
+      // successful result carrying disambiguation info -- a caller skimming for
+      // an error saw none and could reasonably assume the rename had happened.
+      // It now refuses outright, and says which candidates it could not choose
+      // between.
+      await assert.rejects(
+        () => callTool('refactor_rename', { symbol: 'add', newName: 'sum' }),
+        (err: Error) =>
+          /Refusing to rename/.test(err.message) &&
+          /matches \d+ symbols/.test(err.message) &&
+          /qualified name/.test(err.message),
+        'Ambiguous rename must refuse, name the candidates, and say how to disambiguate'
       );
     });
 
@@ -151,13 +150,13 @@ export function processOrder() {
         uri: uri.toString(),
       });
 
-      assert.strictEqual(result.success, true, 'Rename should succeed');
+      assert.strictEqual(result.status, 'ok', 'Rename should succeed');
       assert.ok(
-        result.renamedSymbol.oldName === 'processData' ||
-          result.renamedSymbol.oldName === 'processData()',
-        `Expected 'processData' or 'processData()' but got '${result.renamedSymbol.oldName}'`
+        result.results.renamed.oldName === 'processData' ||
+          result.results.renamed.oldName === 'processData()',
+        `Expected 'processData' or 'processData()' but got '${result.results.renamed.oldName}'`
       );
-      assert.strictEqual(result.renamedSymbol.newName, 'handleData');
+      assert.strictEqual(result.results.renamed.newName, 'handleData');
     });
   });
 
@@ -171,10 +170,10 @@ export function processOrder() {
         newName: 'MATH_PI',
       });
 
-      if (result.success) {
-        assert.ok(!result.changes, 'Compact format should not include detailed changes');
-        assert.ok(result.filesChanged !== undefined, 'Should include file count');
-        assert.ok(result.totalEdits !== undefined, 'Should include edit count');
+      if (result.status === 'ok') {
+        assert.ok(!result.results.changes, 'Compact format should not include detailed changes');
+        assert.ok(result.results.filesChanged !== undefined, 'Should include file count');
+        assert.ok(result.results.totalEdits !== undefined, 'Should include edit count');
       }
     });
 
@@ -188,10 +187,10 @@ export function processOrder() {
         format: 'detailed',
       });
 
-      if (result.success) {
-        assert.ok(result.changes, 'Detailed format should include changes');
-        assert.ok(result.renamedSymbol.kind, 'Should include symbol kind');
-        assert.ok(result.renamedSymbol.location, 'Should include location');
+      if (result.status === 'ok') {
+        assert.ok(result.results.changes, 'Detailed format should include changes');
+        assert.ok(result.results.renamed.kind, 'Should include symbol kind');
+        assert.ok(result.results.renamed.location, 'Should include location');
       }
     });
   });
@@ -213,20 +212,16 @@ export function loadData() {
         newName: 'readFileSync',
       });
 
-      // Should either fail or indicate it's external
-      assert.ok(
-        result.error || !result.success,
-        `Expected an error for external symbol. Got result: ${JSON.stringify(result)}`
+      // An external symbol either does not resolve in this workspace at all
+      // (not-found) or resolves but has no rename provider (which throws, since
+      // the operation was requested and did not happen). Either way it must not
+      // report success, because nothing was written.
+      assert.notStrictEqual(
+        result.status,
+        'ok',
+        `Expected a refusal for an external symbol. Got: ${JSON.stringify(result)}`
       );
-
-      if (result.error) {
-        assert.ok(
-          result.error.includes('No symbol found') ||
-            result.error.includes('external') ||
-            result.error.includes('not be renameable'),
-          `Error should indicate why rename failed. Got error: "${result.error}"`
-        );
-      }
+      assert.ok(result.reason, 'Must say why the rename did not happen');
     });
 
     test('should validate required parameters', async () => {

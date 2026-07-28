@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, notFound, ok } from '../response';
 import { Tool } from '../types';
 import { searchWorkspaceSymbols } from '../utils/symbolProvider';
 
@@ -85,18 +86,14 @@ export const refactor_renameTool: Tool = {
         const suggestions = findSimilarNames(symbol, symbolNames);
 
         return {
-          error: `No symbol found with name '${symbol}'`,
-          suggestions: suggestions.map((name) => {
+          ...notFound(symbol, `No symbol named '${symbol}' in ${currentScope()}; nothing renamed`),
+          results: suggestions.map((name) => {
             const sym = allSymbols?.find((s) => s.name === name);
             return {
               name,
               kind: sym?.kind ? vscode.SymbolKind[sym.kind] : 'unknown',
             };
           }),
-          hint:
-            suggestions.length > 0
-              ? `Did you mean '${suggestions[0]}'? Check the spelling.`
-              : 'Check spelling or use qualified name like "ClassName.methodName"',
         };
       }
 
@@ -108,11 +105,12 @@ export const refactor_renameTool: Tool = {
 
         if (matches.length === 0) {
           return {
-            error: `Symbol '${symbol}' not found in file ${providedUri}`,
-            availableFiles: searchResult.map((s) =>
-              vscode.workspace.asRelativePath(s.location.uri)
+            ...notFound(
+              symbol,
+              `'${symbol}' exists in ${currentScope()} but not in ${providedUri}; nothing renamed. ` +
+                'Drop the uri parameter to rename across all files.'
             ),
-            hint: 'Symbol exists in other files. Remove uri parameter to rename across all files.',
+            results: searchResult.map((s) => vscode.workspace.asRelativePath(s.location.uri)),
           };
         }
       }
@@ -128,25 +126,25 @@ export const refactor_renameTool: Tool = {
         if (exactMatches.length === 1) {
           matches = exactMatches;
         } else {
-          // Return disambiguation info
-          return {
-            multipleMatches: true,
-            matchCount: matches.length,
-            matches: matches.slice(0, 10).map((m, i) => ({
-              symbol: {
-                name: m.name,
-                kind: vscode.SymbolKind[m.kind],
-                container: m.containerName || null,
-                file: vscode.workspace.asRelativePath(m.location.uri),
-                line: m.location.range.start.line + 1,
-              },
-              match: i + 1,
-              hint: m.containerName
-                ? `Use '${m.containerName}.${symbol}' to target this specifically`
-                : null,
-            })),
-            hint: 'Multiple symbols found. Use qualified name (e.g., "Class.method") or provide file URI.',
-          };
+          // This tool writes to disk, so an ambiguous name must stop it dead.
+          // Refusing was already the behaviour, but it was reported as a
+          // successful result -- a caller skimming for an error saw none and
+          // could reasonably conclude the rename had happened.
+          const candidates = matches
+            .slice(0, 10)
+            .map(
+              (m) =>
+                `  ${m.containerName ? `${m.containerName}.` : ''}${m.name} ` +
+                `[${vscode.SymbolKind[m.kind]}] ${vscode.workspace.asRelativePath(m.location.uri)}:` +
+                `${m.location.range.start.line + 1}`
+            )
+            .join('\n');
+          throw new Error(
+            `Refusing to rename: '${symbol}' matches ${matches.length} symbols in ` +
+              `${currentScope()}, and renaming the wrong one would edit files silently.\n` +
+              `${candidates}\n` +
+              'Disambiguate with a qualified name (e.g. "Class.method") or the uri parameter.'
+          );
         }
       }
 
@@ -167,15 +165,11 @@ export const refactor_renameTool: Tool = {
       );
 
       if (!renameEdit) {
-        return {
-          error: 'Rename failed - no rename provider available for this symbol',
-          symbol: {
-            name: match.name,
-            kind: vscode.SymbolKind[match.kind],
-            file: vscode.workspace.asRelativePath(fileUri),
-          },
-          hint: 'This symbol might not be renameable (e.g., external library symbol)',
-        };
+        throw new Error(
+          `No rename provider handled '${match.name}' ` +
+            `[${vscode.SymbolKind[match.kind]}] in ${vscode.workspace.asRelativePath(fileUri)}; ` +
+            'nothing was changed. It may be an external library symbol, which cannot be renamed.'
+        );
       }
 
       // Preview the changes
@@ -195,47 +189,60 @@ export const refactor_renameTool: Tool = {
       const success = await vscode.workspace.applyEdit(renameEdit);
 
       if (!success) {
-        return {
-          error: 'Failed to apply rename operation',
-          attemptedChanges: changes.length,
-          hint: 'The workspace might have unsaved changes. Try saving all files first.',
-        };
+        // A failed write must not read as a result. Files may be partially
+        // edited at this point, which the caller needs to know unambiguously.
+        throw new Error(
+          `Rename of '${symbol}' to '${newName}' failed while applying ${changes.length} ` +
+            'file edit(s); the workspace may be partly modified. Save all files and retry.'
+        );
       }
 
       // Save all affected documents
       await vscode.workspace.saveAll(false);
 
-      if (format === 'compact') {
-        return {
-          success: true,
-          renamedSymbol: {
-            oldName: match.name,
-            newName,
-          },
-          filesChanged: changes.length,
-          totalEdits: changes.reduce((sum, file) => sum + file.edits.length, 0),
-        };
-      }
+      const renamed = {
+        oldName: match.name,
+        newName,
+        ...(format === 'compact'
+          ? {}
+          : {
+              kind: vscode.SymbolKind[match.kind],
+              location: {
+                file: vscode.workspace.asRelativePath(fileUri),
+                line: position.line + 1,
+                character: position.character,
+              },
+            }),
+      };
 
-      return {
-        success: true,
-        renamedSymbol: {
-          oldName: match.name,
-          newName,
-          kind: vscode.SymbolKind[match.kind],
-          location: {
-            file: vscode.workspace.asRelativePath(fileUri),
-            line: position.line + 1,
-            character: position.character,
+      return ok(
+        format === 'compact'
+          ? {
+              renamed,
+              filesChanged: changes.length,
+              totalEdits: changes.reduce((sum, file) => sum + file.edits.length, 0),
+            }
+          : { renamed, changes },
+        {
+          subject: {
+            requested: symbol,
+            resolved: [
+              {
+                name: match.name,
+                kind: vscode.SymbolKind[match.kind],
+                file: vscode.workspace.asRelativePath(fileUri),
+                line: position.line + 1,
+              },
+            ],
           },
-        },
-        changes,
-      };
+        }
+      );
     } catch (error: any) {
-      return {
-        error: error.message || 'Unknown error during rename operation',
-        hint: 'Check if the file is saved and the symbol name is correct.',
-      };
+      // Rethrow: a mutating tool reporting failure as a successful payload is
+      // how a caller ends up believing files were changed when they were not.
+      throw error instanceof Error
+        ? error
+        : new Error(error?.message || 'Unknown error during rename operation');
     }
   },
 };

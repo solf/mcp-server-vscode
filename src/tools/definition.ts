@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, currentScope, notFound, ok } from './response';
 import { Tool } from './types';
+import { anyLanguageInitialized } from './utils/symbolProvider';
 import {
   searchWorkspaceSymbols,
   getDocumentSymbols,
@@ -48,11 +50,15 @@ async function findDefinitionBySymbol(
   const symbols = await searchWorkspaceSymbols(primarySymbol);
 
   if (!symbols || symbols.length === 0) {
-    return {
-      symbol: symbolName,
-      message: `Symbol '${symbolName}' not found in workspace`,
-      definitions: [],
-    };
+    // "No such symbol" and "nothing can answer yet" both arrive as an empty list;
+    // only the first is an answer.
+    if (!anyLanguageInitialized()) {
+      throw new IndeterminateError(
+        `No language server has answered in ${currentScope()} yet, so '${symbolName}' cannot ` +
+          'be looked up. Wait for indexing to finish and retry.'
+      );
+    }
+    return notFound(symbolName, `No symbol named '${symbolName}' in ${currentScope()}`);
   }
 
   // Filter to find exact matches (not partial)
@@ -170,52 +176,34 @@ async function findDefinitionBySymbol(
     }
   }
 
+  // What the name resolved to. Length carries the ambiguity that
+  // `multipleDefinitions` used to flag only in the plural branch.
+  const resolved = matchesToUse.map((sym) => ({
+    name: sym.name,
+    container: sym.containerName || undefined,
+    file: vscode.workspace.asRelativePath(sym.location.uri),
+    line: sym.location.range.start.line + 1,
+  }));
+
   if (allDefinitions.length === 0) {
+    // The name resolved, but no definition came back for it -- e.g. a member
+    // that does not exist on the container that was found. Distinct from the
+    // symbol itself being absent, so `resolved` stays populated.
     return {
-      symbol: symbolName,
-      message: memberSymbol
-        ? `Member '${memberSymbol}' not found in '${primarySymbol}'`
-        : `No definition found for symbol '${symbolName}'`,
-      definitions: [],
+      ...ok([], {
+        subject: { requested: symbolName, resolved },
+        reason: memberSymbol
+          ? `'${primarySymbol}' was found but has no member '${memberSymbol}'`
+          : `'${symbolName}' was found but no definition provider returned a location`,
+      }),
     };
   }
 
-  // Return appropriate format based on number of matches
-  if (allDefinitions.length === 1) {
-    if (format === 'compact') {
-      return {
-        symbol: symbolName,
-        ...allDefinitions[0],
-        definitionFormat: {
-          symbol: '[name, kind, filePath, line]',
-          range: '[startLine, startColumn, endLine, endColumn]',
-        },
-        definitions: [allDefinitions[0]],
-      };
-    } else {
-      return {
-        symbol: symbolName,
-        ...allDefinitions[0],
-        definitions: [allDefinitions[0]],
-      };
-    }
-  } else {
-    if (format === 'compact') {
-      return {
-        symbol: symbolName,
-        multipleDefinitions: true,
-        definitionFormat: {
-          symbol: '[name, kind, filePath, line]',
-          range: '[startLine, startColumn, endLine, endColumn]',
-        },
-        definitions: allDefinitions,
-      };
-    } else {
-      return {
-        symbol: symbolName,
-        multipleDefinitions: true,
-        definitions: allDefinitions,
-      };
-    }
-  }
+  return ok(allDefinitions, {
+    subject: { requested: symbolName, resolved },
+    format:
+      format === 'compact'
+        ? 'symbol [name, kind, filePath, line]; range [startLine, startColumn, endLine, endColumn]'
+        : undefined,
+  });
 }

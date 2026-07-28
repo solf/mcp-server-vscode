@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, notFound, ok } from '../response';
 import { Tool } from '../types';
 import { findSymbolInWorkspace } from '../utils/symbolProvider';
 
@@ -50,9 +51,7 @@ export const debug_setBreakpointTool: Tool = {
 
     // Validate input
     if (!symbol && (!file || line === undefined)) {
-      return format === 'compact'
-        ? { error: 'missing_params' }
-        : { error: 'Provide either a symbol name or file with line number' };
+      throw new Error('Provide either a symbol name, or a file together with a line number.');
     }
 
     let targetUri: vscode.Uri | undefined;
@@ -78,33 +77,34 @@ export const debug_setBreakpointTool: Tool = {
             file: vscode.workspace.asRelativePath(s.location.uri),
           }));
 
-        if (format === 'compact') {
-          return { error: 'not_found', suggestions: suggestions?.map((s) => s.name) };
-        }
+        // No breakpoint was set. The near-misses go in `results` so the caller
+        // can correct the name rather than conclude the symbol does not exist.
         return {
-          error: `Symbol '${symbol}' not found`,
-          suggestions,
+          ...notFound(
+            symbol,
+            `No symbol named '${symbol}' in ${currentScope()}; no breakpoint was set`
+          ),
+          results: suggestions ?? [],
         };
       }
 
-      // Handle multiple matches
+      // Ambiguous: no breakpoint was set. Like rename, this used to come back as
+      // a successful-looking payload, so a caller could believe a breakpoint had
+      // been placed when none had.
       if (symbols.length > 1) {
-        const matches = symbols.map((s) => ({
-          symbol: s.name,
-          kind: vscode.SymbolKind[s.kind],
-          file: vscode.workspace.asRelativePath(s.location.uri),
-          line: s.location.range.start.line + 1,
-          container: s.containerName || '',
-        }));
-
-        if (format === 'compact') {
-          return {
-            multipleMatches: true,
-            matchFormat: '[symbol, kind, file, line]',
-            matches: matches.map((m) => [m.symbol, m.kind, m.file, m.line + 1]),
-          };
-        }
-        return { multipleMatches: true, matches };
+        const candidates = symbols
+          .map(
+            (s) =>
+              `  ${s.containerName ? `${s.containerName}.` : ''}${s.name} ` +
+              `[${vscode.SymbolKind[s.kind]}] ${vscode.workspace.asRelativePath(s.location.uri)}:` +
+              `${s.location.range.start.line + 1}`
+          )
+          .join('\n');
+        throw new Error(
+          `'${symbol}' matches ${symbols.length} symbols in ${currentScope()}, so no breakpoint ` +
+            `was set.\n${candidates}\n` +
+            'Use a qualified name (e.g. "Class.method"), or file and line instead.'
+        );
       }
 
       const match = symbols[0];
@@ -124,9 +124,10 @@ export const debug_setBreakpointTool: Tool = {
       // Find the file in workspace
       const files = await vscode.workspace.findFiles(`**/${file}`);
       if (files.length === 0) {
-        return format === 'compact'
-          ? { error: 'file_not_found' }
-          : { error: `File '${file}' not found in workspace` };
+        return notFound(
+          file,
+          `No file matching '${file}' in ${currentScope()}; no breakpoint was set`
+        );
       }
       targetUri = files[0];
       // targetLine already set above after conversion
@@ -148,12 +149,20 @@ export const debug_setBreakpointTool: Tool = {
       ...(symbolInfo && { kind: symbolInfo.kind, container: symbolInfo.container }),
     };
 
-    if (format === 'compact') {
-      return {
-        bpFormat: '[file, line, enabled]',
-        bp: [breakpointInfo.file, breakpointInfo.line + 1, breakpointInfo.enabled],
-      };
-    }
-    return { breakpoint: breakpointInfo };
+    // Enveloped like the not-found path above: this tool answered both ways in
+    // different shapes, so a caller checking `status` got 'not-found' sometimes
+    // and undefined otherwise.
+    return ok(
+      format === 'compact'
+        ? { bp: [breakpointInfo.file, breakpointInfo.line + 1, breakpointInfo.enabled] }
+        : { breakpoint: breakpointInfo },
+      {
+        subject: {
+          requested: symbol ?? `${file}:${line}`,
+          resolved: [`${breakpointInfo.file}:${breakpointInfo.line}`],
+        },
+        format: format === 'compact' ? '[file, line, enabled]' : undefined,
+      }
+    );
   },
 };

@@ -28,13 +28,13 @@ suite('Definition Tool Tests', () => {
     });
 
     assert.ok(!result.error, `Should not have error: ${result.error}`);
-    assert.ok(result.definitions, 'Should return definitions');
-    assert.ok(result.definitions.length > 0, 'Should find at least one definition');
+    assert.ok(result.results, 'Should return definitions');
+    assert.ok(result.results.length > 0, 'Should find at least one definition');
 
     // Since 'add' might match both function and method, check what we got
-    if (result.multipleDefinitions) {
+    if (result.subject.resolved.length > 1) {
       // Multiple matches - find the function (not the method)
-      const functionDef = result.definitions.find((d: any) => d.symbol.kind === 'Function');
+      const functionDef = result.results.find((d: any) => d.symbol.kind === 'Function');
       assert.ok(functionDef, 'Should find the function definition');
       assert.ok(functionDef.uri.endsWith('math.ts'), 'Should point to math.ts file');
       assert.ok(
@@ -43,7 +43,7 @@ suite('Definition Tool Tests', () => {
       );
     } else {
       // Single match
-      const def = result.definitions[0];
+      const def = result.results[0];
       assert.ok(def.uri.endsWith('math.ts'), 'Should point to math.ts file');
       assert.ok(def.symbol, 'Should include symbol information');
       // VS Code returns function names with () appended
@@ -66,10 +66,10 @@ suite('Definition Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.definitions, 'Should return definitions');
-    assert.ok(result.definitions.length > 0, 'Should find at least one definition');
+    assert.ok(result.results, 'Should return definitions');
+    assert.ok(result.results.length > 0, 'Should find at least one definition');
 
-    const def = result.definitions[0];
+    const def = result.results[0];
     assert.ok(def.uri.endsWith('math.ts'), 'Should point to math.ts file');
     assert.strictEqual(def.symbol.kind, 'Class', 'Should identify as class');
   });
@@ -81,10 +81,10 @@ suite('Definition Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.definitions, 'Should return definitions');
-    assert.ok(result.definitions.length > 0, 'Should find at least one definition');
+    assert.ok(result.results, 'Should return definitions');
+    assert.ok(result.results.length > 0, 'Should find at least one definition');
 
-    const def = result.definitions[0];
+    const def = result.results[0];
     assert.ok(def.uri.endsWith('math.ts'), 'Should point to math.ts file');
     assert.ok(def.symbol, 'Should include symbol information');
     assert.strictEqual(def.symbol.name, 'add', 'Should match method name');
@@ -98,10 +98,10 @@ suite('Definition Tool Tests', () => {
       symbol: 'NonExistentSymbol',
     });
 
-    assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.message, 'Should have message');
-    assert.ok(result.message.includes('not found'), 'Should indicate symbol not found');
-    assert.deepStrictEqual(result.definitions, [], 'Should return empty definitions');
+    assert.strictEqual(result.status, 'not-found', 'Absent symbol must be not-found');
+    assert.deepStrictEqual(result.subject.resolved, [], 'Nothing should have resolved');
+    assert.ok(result.reason, 'not-found must explain itself');
+    assert.deepStrictEqual(result.results, [], 'Should return empty definitions');
   });
 
   test('should handle multiple definitions', async () => {
@@ -112,15 +112,15 @@ suite('Definition Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.definitions, 'Should return definitions');
+    assert.ok(result.results, 'Should return definitions');
 
     // If there are multiple matches, it should indicate that
-    if (result.multipleDefinitions) {
-      assert.ok(result.definitions.length > 1, 'Should have multiple definitions');
+    if (result.subject.resolved.length > 1) {
+      assert.ok(result.results.length > 1, 'Should have multiple definitions');
 
       // Verify we get both the function and the method
-      const functionDef = result.definitions.find((d: any) => d.symbol.kind === 'Function');
-      const methodDef = result.definitions.find((d: any) => d.symbol.kind === 'Method');
+      const functionDef = result.results.find((d: any) => d.symbol.kind === 'Function');
+      const methodDef = result.results.find((d: any) => d.symbol.kind === 'Method');
 
       if (methodDef) {
         assert.ok(functionDef, 'Should find standalone function');
@@ -151,10 +151,10 @@ suite('Definition Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.definitions, 'Should return definitions');
-    assert.ok(result.definitions.length > 0, 'Should find definition');
+    assert.ok(result.results, 'Should return definitions');
+    assert.ok(result.results.length > 0, 'Should find definition');
 
-    const def = result.definitions[0];
+    const def = result.results[0];
     assert.strictEqual(def.symbol.name, 'getResult', 'Should match method name');
     assert.strictEqual(def.symbol.kind, 'Method', 'Should identify as method');
     assert.strictEqual(def.symbol.container, 'Calculator', 'Should show container');

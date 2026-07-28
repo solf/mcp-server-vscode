@@ -149,13 +149,26 @@ server.setRequestHandler(CallToolRequestSchema, async (req: any) => {
   // Enforced here as well as in the tool list: advertising fewer tools does not
   // stop a client asking for one by name.
   if (allowedTools.size > 0 && !allowedTools.has(name)) {
-    return { content: [{ type: 'text', text: `Error: tool '${name}' is not enabled` }] };
+    return {
+      content: [{ type: 'text', text: `Error: tool '${name}' is not enabled` }],
+      isError: true,
+    };
   }
 
+  // Failures carry isError so the model sees them as failures. Per the MCP spec
+  // these belong in the result rather than as a protocol error: a protocol error
+  // is consumed by the client and may never reach the model in usable form,
+  // leaving it unable to self-correct. Previously these were returned as
+  // successful results whose text merely began with "Error:".
   try {
     const response = await callBridge('/tool', 'POST', { tool: name, args });
     if (response.error) {
-      return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+      const scope = response.scope ? ` [${response.scope}]` : '';
+      const kind = response.status === 'indeterminate' ? 'Cannot answer' : 'Error';
+      return {
+        content: [{ type: 'text', text: `${kind}${scope}: ${response.error}` }],
+        isError: true,
+      };
     }
     return { content: [{ type: 'text', text: JSON.stringify(response.result, null, 2) }] };
   } catch (error) {
@@ -163,6 +176,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req: any) => {
       content: [
         { type: 'text', text: `Error: ${error instanceof Error ? error.message : String(error)}` },
       ],
+      isError: true,
     };
   }
 });

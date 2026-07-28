@@ -30,16 +30,16 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, `Should not have error: ${result.error}`);
-    assert.ok(result.summary, 'Should have summary');
-    assert.ok(result.summary.totalFiles > 0, 'Should find files');
-    assert.ok(result.summary.totalSymbols > 0, 'Should find symbols');
-    assert.ok(result.files, 'Should have files object');
-    assert.ok(Object.keys(result.files).length > 0, 'Should have file entries');
+    assert.ok(result.results.summary, 'Should have summary');
+    assert.ok(result.results.summary.totalFiles > 0, 'Should find files');
+    assert.ok(result.results.summary.totalSymbols > 0, 'Should find symbols');
+    assert.ok(result.results.files, 'Should have files object');
+    assert.ok(Object.keys(result.results.files).length > 0, 'Should have file entries');
 
     // Verify symbol structure
-    const files = Object.keys(result.files);
+    const files = Object.keys(result.results.files);
     const firstFile = files[0];
-    const symbols = result.files[firstFile];
+    const symbols = result.results.files[firstFile];
     assert.ok(Array.isArray(symbols), 'File symbols should be an array');
     if (symbols.length > 0) {
       const symbol = symbols[0];
@@ -56,10 +56,10 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.summary, 'Should have summary');
-    assert.strictEqual(result.summary.totalFiles, 0, 'Should find no files');
-    assert.strictEqual(result.summary.totalSymbols, 0, 'Should find no symbols');
-    assert.deepStrictEqual(result.files, {}, 'Should have empty files object');
+    assert.ok(result.results.summary, 'Should have summary');
+    assert.strictEqual(result.results.summary.totalFiles, 0, 'Should find no files');
+    assert.strictEqual(result.results.summary.totalSymbols, 0, 'Should find no symbols');
+    assert.deepStrictEqual(result.results.files, {}, 'Should have empty files object');
   });
 
   test('should support symbol kind counting', async () => {
@@ -69,11 +69,11 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.summary.byKind, 'Should have byKind counts');
-    assert.ok(typeof result.summary.byKind === 'object', 'byKind should be an object');
+    assert.ok(result.results.summary.byKind, 'Should have byKind counts');
+    assert.ok(typeof result.results.summary.byKind === 'object', 'byKind should be an object');
 
     // Should have some common symbol kinds
-    const kinds = Object.keys(result.summary.byKind);
+    const kinds = Object.keys(result.results.summary.byKind);
     assert.ok(kinds.length > 0, 'Should have symbol kinds');
   });
 
@@ -84,7 +84,7 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.summary.totalFiles <= 1, 'Should respect maxFiles limit');
+    assert.ok(result.results.summary.totalFiles <= 1, 'Should respect maxFiles limit');
   });
 
   // ========== Format Tests ==========
@@ -96,20 +96,20 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, `Should not have error: ${result.error}`);
-    assert.ok(result.totalSymbols >= 0, 'Should have totalSymbols');
-    assert.ok(result.symbolFormat, 'Should have symbolFormat description');
+    assert.ok(result.results.totalSymbols >= 0, 'Should have totalSymbols');
+    assert.ok(result.format, 'Should have symbolFormat description');
     assert.strictEqual(
-      result.symbolFormat,
+      result.format,
       '[fullName, kind, line]',
       'Should match expected format'
     );
-    assert.ok(result.symbols, 'Should have symbols object');
+    assert.ok(result.results.symbols, 'Should have symbols object');
 
     // Verify compact format structure
-    const files = Object.keys(result.symbols);
+    const files = Object.keys(result.results.symbols);
     if (files.length > 0) {
       const firstFile = files[0];
-      const symbols = result.symbols[firstFile];
+      const symbols = result.results.symbols[firstFile];
       assert.ok(Array.isArray(symbols), 'File symbols should be an array');
 
       if (symbols.length > 0) {
@@ -130,12 +130,12 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.symbols, 'Should have symbols');
+    assert.ok(result.results.symbols, 'Should have symbols');
 
     // Find Calculator class methods
-    const mathFile = Object.keys(result.symbols).find((f) => f.endsWith('math.ts'));
+    const mathFile = Object.keys(result.results.symbols).find((f) => f.endsWith('math.ts'));
     if (mathFile) {
-      const symbols = result.symbols[mathFile];
+      const symbols = result.results.symbols[mathFile];
       const classMethod = symbols.find((s: any[]) => s[0].includes('Calculator.'));
       assert.ok(classMethod, 'Should include nested class methods with full path');
     }
@@ -150,10 +150,10 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.files, 'Should have files');
+    assert.ok(result.results.files, 'Should have files');
 
     // All files should be TypeScript files
-    const files = Object.keys(result.files);
+    const files = Object.keys(result.results.files);
     files.forEach((file) => {
       assert.ok(file.endsWith('.ts') || file.endsWith('.tsx'), `File ${file} should be TypeScript`);
     });
@@ -166,9 +166,9 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.files, 'Should have files');
+    assert.ok(result.results.files, 'Should have files');
 
-    const files = Object.keys(result.files);
+    const files = Object.keys(result.results.files);
     assert.ok(files.length <= 1, 'Should find at most one math.ts file');
     if (files.length > 0) {
       assert.ok(files[0].endsWith('math.ts'), 'Should only include math.ts');
@@ -185,12 +185,12 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.summary.totalSymbols > 0, 'Should find TypeScript symbols');
+    assert.ok(result.results.summary.totalSymbols > 0, 'Should find TypeScript symbols');
 
     // Look for TypeScript-specific symbols
     let foundFunction = false;
 
-    for (const symbols of Object.values(result.files)) {
+    for (const symbols of Object.values(result.results.files)) {
       for (const symbol of symbols as any[]) {
         if (symbol.kind === 'Function') foundFunction = true;
       }
@@ -208,12 +208,12 @@ suite('Workspace Symbols Tool Tests', () => {
       maxFiles: 10,
     });
 
-    if (checkResult.summary && checkResult.summary.totalFiles > 0) {
+    if (checkResult.results.summary && checkResult.results.summary.totalFiles > 0) {
       // We have Python files, verify they have symbols
-      assert.ok(checkResult.summary.totalSymbols > 0, 'Should extract symbols from Python files');
+      assert.ok(checkResult.results.summary.totalSymbols > 0, 'Should extract symbols from Python files');
 
       // Verify Python-specific symbol structure
-      const pyFiles = Object.keys(checkResult.files).filter((f) => f.endsWith('.py'));
+      const pyFiles = Object.keys(checkResult.results.files).filter((f) => f.endsWith('.py'));
       assert.ok(pyFiles.length > 0, 'Should have Python files');
     } else {
       // No Python files in test workspace, skip
@@ -240,14 +240,14 @@ suite('Workspace Symbols Tool Tests', () => {
     assert.ok(!minimalResult.error, 'Minimal result should not have error');
 
     // Both should have the same files
-    const detailedFiles = Object.keys(detailedResult.files);
-    const minimalFiles = Object.keys(minimalResult.files);
+    const detailedFiles = Object.keys(detailedResult.results.files);
+    const minimalFiles = Object.keys(minimalResult.results.files);
     assert.deepStrictEqual(detailedFiles.sort(), minimalFiles.sort(), 'Should have same files');
 
     // Detailed should have range info, minimal should not
-    if (detailedFiles.length > 0 && detailedResult.files[detailedFiles[0]].length > 0) {
-      const detailedSymbol = detailedResult.files[detailedFiles[0]][0];
-      const minimalSymbol = minimalResult.files[minimalFiles[0]][0];
+    if (detailedFiles.length > 0 && detailedResult.results.files[detailedFiles[0]].length > 0) {
+      const detailedSymbol = detailedResult.results.files[detailedFiles[0]][0];
+      const minimalSymbol = minimalResult.results.files[minimalFiles[0]][0];
 
       assert.ok(detailedSymbol.range, 'Detailed should have range');
       assert.ok(!minimalSymbol.range, 'Minimal should not have range');
@@ -263,7 +263,7 @@ suite('Workspace Symbols Tool Tests', () => {
     assert.ok(!result.error, 'Should not have error');
 
     // Should not include files like HTML, JSON, etc.
-    const files = Object.keys(result.files);
+    const files = Object.keys(result.results.files);
     files.forEach((file) => {
       assert.ok(
         !file.endsWith('.html') &&
@@ -296,7 +296,7 @@ suite('Workspace Symbols Tool Tests', () => {
     assert.ok(!result.error, 'Should not have error');
 
     // Should not include node_modules or other external paths
-    const files = Object.keys(result.files);
+    const files = Object.keys(result.results.files);
     files.forEach((file) => {
       assert.ok(!file.includes('node_modules'), 'Should not include node_modules');
       assert.ok(!file.includes('venv'), 'Should not include Python venv');
@@ -311,10 +311,10 @@ suite('Workspace Symbols Tool Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.summary.totalFiles > 0, 'Should find files using default patterns');
+    assert.ok(result.results.summary.totalFiles > 0, 'Should find files using default patterns');
 
     // Should include common code file extensions
-    const files = Object.keys(result.files);
+    const files = Object.keys(result.results.files);
     const hasCodeFiles = files.some(
       (f) =>
         f.endsWith('.ts') ||
@@ -341,7 +341,7 @@ suite('Workspace Symbols Tool Tests', () => {
         'Error should mention language server or workspace'
       );
     } else {
-      assert.ok(result.summary, 'Should have summary even in cold start');
+      assert.ok(result.results.summary, 'Should have summary even in cold start');
     }
   });
 });

@@ -4,6 +4,7 @@ import { AddressInfo } from 'net';
 import * as vscode from 'vscode';
 import { BUILD_COMMIT, BUILD_DIRTY, BUILD_TIME, BUILD_VERSION } from '../buildInfo';
 import { getTools } from '../tools';
+import { IndeterminateError, currentScope } from '../tools/response';
 import { generateToken } from './registry';
 import { validateToolArguments } from './validate';
 
@@ -97,10 +98,17 @@ export class HTTPBridge {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ result }));
           } catch (error) {
-            res.writeHead(500);
+            // A tool that could not answer (language server cold, no debug
+            // session, no folder open) is reported as a failure rather than as
+            // empty results, so the client can mark it isError and the model can
+            // see it. 503 distinguishes "ask again later" from a genuine fault.
+            const indeterminate = error instanceof IndeterminateError;
+            res.writeHead(indeterminate ? 503 : 500, { 'Content-Type': 'application/json' });
             res.end(
               JSON.stringify({
                 error: error instanceof Error ? error.message : String(error),
+                status: indeterminate ? 'indeterminate' : 'error',
+                scope: currentScope(),
               })
             );
           }

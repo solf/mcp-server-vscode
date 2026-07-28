@@ -1,8 +1,26 @@
 import * as assert from 'assert';
 import { setupTest, teardownTest, callTool, TestContext } from '../helpers/testHelpers';
 
+/**
+ * These tests all exercise the same condition: no debug session is running.
+ *
+ * That used to come back as a successful result whose body happened to be
+ * `{error: 'no_session'}`, which a caller could easily read straight past. It is
+ * now a failure -- the tool could not answer, so it says so and the request
+ * rejects. `format` no longer changes the outcome either; there is no longer a
+ * "compact error" distinct from a detailed one.
+ */
 suite('Debug Output Tool Tests', () => {
   let context: TestContext;
+
+  /** Asserts that a debug_getOutput call fails because nothing is being debugged. */
+  async function expectNoSession(args: Record<string, unknown>): Promise<void> {
+    await assert.rejects(
+      () => callTool('debug_getOutput', args),
+      (err: Error) => /No active debug session/.test(err.message),
+      `Expected a no-session failure for ${JSON.stringify(args)}`
+    );
+  }
 
   suiteSetup(async () => {
     context = await setupTest();
@@ -13,68 +31,46 @@ suite('Debug Output Tool Tests', () => {
   });
 
   test('should handle no debug session', async () => {
-    const result = await callTool('debug_getOutput', {
-      format: 'detailed',
-    });
-
-    assert.ok(result.error, 'Should have error when no session');
-    assert.ok(result.error.includes('No active debug session'), 'Should mention no session');
+    await expectNoSession({ format: 'detailed' });
   });
 
-  test('should handle empty output', async () => {
-    // This test would require an active debug session
-    // For now, just test the error case
-    const result = await callTool('debug_getOutput', {
-      category: 'console',
-      limit: 10,
-      format: 'compact',
-    });
-
-    assert.ok(result.error === 'no_session', 'Should return compact error');
+  test('should fail the same way regardless of format', async () => {
+    // Previously 'compact' returned the bare code 'no_session' while 'detailed'
+    // returned a sentence -- two shapes for one condition.
+    await expectNoSession({ category: 'console', limit: 10, format: 'compact' });
+    await expectNoSession({ category: 'console', limit: 10, format: 'detailed' });
   });
 
   test('should validate category parameter', async () => {
+    // 'category' is an enum, so an unknown value fails schema validation and the
+    // request never reaches the tool -- a 400, which the helper returns as
+    // {error} rather than rejecting. Note this outranks the missing session:
+    // the request is malformed before the session is even consulted.
     const result = await callTool('debug_getOutput', {
-      category: 'invalid' as any,
+      category: 'invalid' as unknown as string,
       format: 'detailed',
     });
 
-    // The tool should still work, just not filter by the invalid category
-    assert.ok(result.error, 'Should have error (no session)');
+    assert.ok(result.error, 'Invalid enum value should be rejected by validation');
+    assert.ok(/category/i.test(result.error), 'Error should name the offending parameter');
   });
 
   test('should handle filter parameter', async () => {
-    const result = await callTool('debug_getOutput', {
-      filter: 'error',
-      format: 'detailed',
-    });
-
-    assert.ok(result.error, 'Should have error when no session');
-    assert.ok(result.error.includes('No active debug session'), 'Should mention no session');
+    await expectNoSession({ filter: 'error', format: 'detailed' });
   });
 
   test('should handle limit parameter', async () => {
-    const result = await callTool('debug_getOutput', {
-      limit: 50,
-      format: 'detailed',
-    });
-
-    assert.ok(result.error, 'Should have error when no session');
+    await expectNoSession({ limit: 50, format: 'detailed' });
   });
 
-  test('should detect integratedTerminal limitation', async () => {
-    // This test demonstrates the expected warning format
-    // In a real scenario with integratedTerminal and no output:
-    // const result = await callTool('debug_getOutput', { format: 'detailed' });
-    // assert.ok(result.warning, 'Should have warning about integratedTerminal');
-    // assert.ok(result.suggestion.includes('internalConsole'), 'Should suggest using internalConsole');
-
-    // For now, just verify the tool handles the parameters
-    const result = await callTool('debug_getOutput', {
-      format: 'compact',
-    });
-
-    assert.ok(result.error === 'no_session', 'Should return no session error');
+  test('should say what to do about the missing session', async () => {
+    // The message has to be actionable -- "no_session" told the caller nothing
+    // about how to proceed.
+    await assert.rejects(
+      () => callTool('debug_getOutput', { format: 'compact' }),
+      (err: Error) => /debug_startSession/.test(err.message),
+      'Failure should point at the tool that fixes it'
+    );
   });
 
   // Note: Full integration tests would require:

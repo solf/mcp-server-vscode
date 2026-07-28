@@ -149,6 +149,18 @@ export async function getDocumentSymbols(
 }
 
 /**
+ * Has any language server answered in this session?
+ *
+ * Lets a caller tell "there is no such symbol" from "nothing is able to tell us".
+ * Both look like an empty symbol list, and reporting the second as the first is
+ * how an unindexed workspace gets stated as fact. Free to call: this only reads
+ * what the warm-up already recorded.
+ */
+export function anyLanguageInitialized(): boolean {
+  return initializedLanguages.size > 0;
+}
+
+/**
  * Reset the initialized languages cache
  * (Useful for testing or when extensions are reloaded)
  */

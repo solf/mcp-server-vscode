@@ -37,19 +37,12 @@ suite('Hover Tool Tests', () => {
 
     assert.ok(!result.error, `Should not have error: ${result.error}`);
 
-    // Handle both single and multiple match cases
-    let hoverInfo;
-    if (result.multipleMatches && result.matches) {
-      // Find the add function from math.ts (not from temp files)
-      const mathMatch = result.matches.find(
+    // Find the add function from math.ts (not from temp files)
+    const match = result.results.find(
         (m: any) => m.symbol.file.includes('math.ts') && !m.symbol.file.includes('temp-test')
-      );
-      assert.ok(mathMatch, 'Should find add function from math.ts');
-      hoverInfo = mathMatch.hover;
-    } else {
-      assert.ok(result.hover, 'Should return hover information');
-      hoverInfo = result.hover;
-    }
+    );
+    assert.ok(match, 'Should find add function from math.ts');
+    const hoverInfo = match.hover;
 
     assert.ok(hoverInfo.contents, 'Should have contents');
     const content = hoverInfo.contents.join(' ');
@@ -66,19 +59,12 @@ suite('Hover Tool Tests', () => {
 
     assert.ok(!result.error, 'Should not have error');
 
-    // Handle both single and multiple match cases
-    let hoverInfo;
-    if (result.multipleMatches && result.matches) {
-      // Find the add function from math.ts (not from temp files)
-      const mathMatch = result.matches.find(
+    // Find the add function from math.ts (not from temp files)
+    const match = result.results.find(
         (m: any) => m.symbol.file.includes('math.ts') && !m.symbol.file.includes('temp-test')
-      );
-      assert.ok(mathMatch, 'Should find add function from math.ts');
-      hoverInfo = mathMatch.hover;
-    } else {
-      assert.ok(result.hover, 'Should return hover information');
-      hoverInfo = result.hover;
-    }
+    );
+    assert.ok(match, 'Should find add function from math.ts');
+    const hoverInfo = match.hover;
 
     const content = hoverInfo.contents.join(' ');
     // Check for JSDoc content
@@ -96,19 +82,12 @@ suite('Hover Tool Tests', () => {
 
     assert.ok(!result.error, 'Should not have error');
 
-    // Handle both single and multiple match cases
-    let hoverInfo;
-    if (result.multipleMatches && result.matches) {
-      // Find the Calculator class from math.ts (not from temp files)
-      const mathMatch = result.matches.find(
+    // Find the Calculator class from math.ts (not from temp files)
+    const match = result.results.find(
         (m: any) => m.symbol.file.includes('math.ts') && !m.symbol.file.includes('temp-test')
-      );
-      assert.ok(mathMatch, 'Should find Calculator class from math.ts');
-      hoverInfo = mathMatch.hover;
-    } else {
-      assert.ok(result.hover, 'Should return hover information');
-      hoverInfo = result.hover;
-    }
+    );
+    assert.ok(match, 'Should find Calculator class from math.ts');
+    const hoverInfo = match.hover;
 
     assert.ok(hoverInfo.contents, 'Should have contents');
     const content = hoverInfo.contents.join(' ');
@@ -126,36 +105,24 @@ suite('Hover Tool Tests', () => {
 
     assert.ok(!result.error, `Should not have error: ${result.error}`);
 
-    // Check if it's the "no hover information available" case
-    if (result.message) {
-      console.log('No hover message:', result.message);
-      // This can happen if the language server hasn't indexed yet
+    // The symbol resolved but no hover provider had anything to say. That is
+    // reported as a reason on an otherwise-ok result, distinct from the symbol
+    // not existing.
+    if (result.reason) {
+      console.log('No hover information:', result.reason);
       return;
     }
 
-    // Handle multiple matches case
-    if (result.multipleMatches) {
-      assert.ok(result.matches, 'Should have matches');
-      // Find the Calculator.add method
-      const methodMatch = result.matches.find(
-        (m: any) => m.symbol.container === 'Calculator' && m.symbol.name.startsWith('add')
-      );
-      assert.ok(methodMatch, 'Should find Calculator.add method');
-      assert.ok(methodMatch.hover, 'Method should have hover info');
-      const content = methodMatch.hover.contents.join(' ');
-      assert.ok(
-        content.includes('Adds a number') || content.includes('current result'),
-        'Should include method documentation'
-      );
-    } else {
-      assert.ok(result.hover, 'Should return hover information');
-      const content = result.hover.contents.join(' ');
-      // The add method should have JSDoc
-      assert.ok(
-        content.includes('Adds a number') || content.includes('current result'),
-        'Should include method documentation'
-      );
-    }
+    const methodMatch = result.results.find(
+      (m: any) => m.symbol.container === 'Calculator' && m.symbol.name.startsWith('add')
+    );
+    assert.ok(methodMatch, 'Should find Calculator.add method');
+    assert.ok(methodMatch.hover, 'Method should have hover info');
+    const content = methodMatch.hover.contents.join(' ');
+    assert.ok(
+      content.includes('Adds a number') || content.includes('current result'),
+      'Should include method documentation'
+    );
   });
 
   test('should handle symbol not found', async () => {
@@ -164,8 +131,9 @@ suite('Hover Tool Tests', () => {
       symbol: 'nonExistentFunction',
     });
 
-    assert.ok(result.error, 'Should return error for non-existent symbol');
-    assert.ok(result.error.includes('No symbol found'), 'Error should mention symbol not found');
+    assert.strictEqual(result.status, 'not-found', 'Absent symbol must be not-found');
+    assert.deepStrictEqual(result.subject.resolved, [], 'Nothing should have resolved');
+    assert.ok(result.reason, 'not-found must explain itself');
   });
 
   test.skip('should show imported type information', async () => {
@@ -181,22 +149,18 @@ suite('Hover Tool Tests', () => {
 
     assert.ok(!result.error, 'Should not have error');
 
-    // Check if it's the "no hover information available" case
-    if (result.message) {
-      console.log('No hover message:', result.message);
-      // This can happen if the language server hasn't indexed yet
+    if (result.reason) {
+      console.log('No hover information:', result.reason);
       return;
     }
 
-    assert.ok(result.hover, 'Should return hover information');
-    assert.ok(result.hover.codeSnippet, 'Should include code snippet');
+    const hover = result.results[0]?.hover;
+    assert.ok(hover, 'Should return hover information');
+    assert.ok(hover.codeSnippet, 'Should include code snippet');
 
     // Code snippet should show the function with context
-    assert.ok(
-      result.hover.codeSnippet.includes('multiply'),
-      'Code snippet should include function name'
-    );
-    assert.ok(result.hover.codeSnippet.includes('>'), 'Code snippet should mark the target line');
+    assert.ok(hover.codeSnippet.includes('multiply'), 'Code snippet should include function name');
+    assert.ok(hover.codeSnippet.includes('>'), 'Code snippet should mark the target line');
   });
 
   test('should handle multiple matches', async () => {
@@ -208,24 +172,24 @@ suite('Hover Tool Tests', () => {
 
     assert.ok(!result.error, 'Should not have error');
 
-    if (result.message) {
-      console.log('No hover message:', result.message);
-      // This can happen if the language server hasn't indexed yet
+    if (result.reason) {
+      console.log('No hover information:', result.reason);
       return;
     }
 
-    if (result.multipleMatches) {
-      assert.ok(result.matches, 'Should have matches array');
-      assert.ok(result.matches.length > 0, 'Should have at least one match');
+    // One shape regardless of how many matched -- the caller no longer has to
+    // branch on a `multipleMatches` flag to know where to look.
+    assert.ok(Array.isArray(result.results), 'Results should always be an array');
+    assert.ok(result.results.length > 0, 'Should have at least one match');
+    assert.strictEqual(
+      result.results.length,
+      result.subject.resolved.length,
+      'One hover entry per resolved symbol'
+    );
 
-      // Each match should have hover info
-      result.matches.forEach((match: any) => {
-        assert.ok(match.hover, 'Each match should have hover info');
-        assert.ok(match.symbol, 'Each match should have symbol info');
-      });
-    } else {
-      // Single match is also acceptable
-      assert.ok(result.hover, 'Should have hover info for single match');
-    }
+    result.results.forEach((match: any) => {
+      assert.ok(match.hover, 'Each match should have hover info');
+      assert.ok(match.symbol, 'Each match should have symbol info');
+    });
   });
 });

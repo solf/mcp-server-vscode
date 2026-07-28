@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, IndeterminateError } from '../response';
 import { Tool } from '../types';
 
 export const debug_stepOutTool: Tool = {
@@ -25,7 +26,9 @@ export const debug_stepOutTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is nothing to step. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -39,7 +42,10 @@ export const debug_stepOutTool: Tool = {
         if (threads.length > 0) {
           targetThreadId = threads[0].id;
         } else {
-          return format === 'compact' ? { error: 'no_threads' } : { error: 'No threads available' };
+          throw new IndeterminateError(
+        'The debug session reports no threads, so there is nothing to step. ' +
+          'This usually means it has not started or is not paused.'
+      );
         }
       }
 
@@ -47,22 +53,21 @@ export const debug_stepOutTool: Tool = {
       await session.customRequest('stepOut', { threadId: targetThreadId });
 
       if (format === 'compact') {
-        return { stepped: true, thread: targetThreadId };
+        return { scope: currentScope(), stepped: true, thread: targetThreadId };
       }
       return {
+        scope: currentScope(),
         status: 'Stepped out',
         threadId: targetThreadId,
         action: 'stepOut',
       };
     } catch (error: any) {
-      if (format === 'compact') {
-        return { error: 'step_failed', message: error.message };
+      // An IndeterminateError from inside the try is a precondition failure, not a
+      // fault -- rethrow it so it stays distinguishable instead of being flattened.
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-      return {
-        error: 'Failed to step out',
-        details: error.message,
-        hint: 'Ensure the debugger is paused inside a function',
-      };
+      throw new Error(`Failed to step out: ${error?.message ?? String(error)}`);
     }
   },
 };

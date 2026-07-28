@@ -34,10 +34,17 @@ async function main() {
         '--disable-workspace-trust',
         '--disable-telemetry',
         '--disable-crash-reporter',
-        '--user-data-dir=/tmp/vscode-test-profile',
+        // Was hardcoded to /tmp/vscode-test-profile, which on Windows resolves to
+        // <drive>:\tmp -- not writable, so VS Code died with EPERM before any test
+        // ran. Keep the profile beside the downloaded VS Code instead.
+        `--user-data-dir=${path.resolve(__dirname, '../../.vscode-test/user-data')}`,
       ],
       extensionTestsEnv: {
         ...process.env,
+        // Cursor and VS Code set this in their own child processes; inherited by
+        // the test instance it makes Electron start as plain node, which then
+        // tries to require() the workspace path instead of launching VS Code.
+        ELECTRON_RUN_AS_NODE: undefined,
         MOCHA_GREP: process.env.MOCHA_GREP,
         // Disable telemetry and other features that might slow down tests
         VSCODE_SKIP_PRELAUNCH: '1',

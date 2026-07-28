@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope } from '../response';
 import { Tool } from '../types';
 
 export const debug_clearBreakpointsTool: Tool = {
@@ -25,6 +26,6 @@ export const debug_clearBreakpointsTool: Tool = {
     if (format === 'compact') {
       return { cleared: count };
     }
-    return { status: 'All breakpoints cleared', count };
+    return { scope: currentScope(), status: 'All breakpoints cleared', count };
   },
 };

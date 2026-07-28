@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, IndeterminateError } from '../response';
 import { Tool } from '../types';
 
 export const debug_continueExecutionTool: Tool = {
@@ -30,7 +31,9 @@ export const debug_continueExecutionTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is nothing to act on. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -42,9 +45,10 @@ export const debug_continueExecutionTool: Tool = {
         });
 
         if (format === 'compact') {
-          return { continued: true, thread: threadId };
+          return { scope: currentScope(), continued: true, thread: threadId };
         }
         return {
+          scope: currentScope(),
           status: 'Continued execution',
           threadId,
           allThreadsContinued: allThreads,
@@ -63,21 +67,21 @@ export const debug_continueExecutionTool: Tool = {
         }
 
         if (format === 'compact') {
-          return { continued: true, threads: threads.length };
+          return { scope: currentScope(), continued: true, threads: threads.length };
         }
         return {
+          scope: currentScope(),
           status: 'Continued execution',
           continuedThreads: threads.map((t: any) => ({ id: t.id, name: t.name })),
         };
       }
     } catch (error: any) {
-      if (format === 'compact') {
-        return { error: 'continue_failed', message: error.message };
+      // An IndeterminateError from inside the try is a precondition failure, not a
+      // fault -- rethrow it so it stays distinguishable instead of being flattened.
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-      return {
-        error: 'Failed to continue execution',
-        details: error.message,
-      };
+      throw new Error(`Failed to continue execution: ${error?.message ?? String(error)}`);
     }
   },
 };

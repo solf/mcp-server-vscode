@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, currentScope, notFound, ok } from './response';
 import { Tool } from './types';
-import { searchWorkspaceSymbols } from './utils/symbolProvider';
+import { anyLanguageInitialized, searchWorkspaceSymbols } from './utils/symbolProvider';
 
 export const callHierarchyTool: Tool = {
   name: 'callHierarchy',
@@ -47,10 +48,15 @@ export const callHierarchyTool: Tool = {
     const symbols = await searchWorkspaceSymbols(searchQuery);
 
     if (!symbols || symbols.length === 0) {
-      return {
-        error: `No symbol found with name "${symbol}"`,
-        suggestion: 'Try searching for the exact function name without parameters or class prefix',
-      };
+      // Empty means "no such symbol" or "nothing can answer yet"; only the
+      // first is an answer.
+      if (!anyLanguageInitialized()) {
+        throw new IndeterminateError(
+          `No language server has answered in ${currentScope()} yet, so "${symbol}" cannot ` +
+            'be looked up. Wait for indexing to finish and retry.'
+        );
+      }
+      return notFound(symbol, `No symbol named "${symbol}" in ${currentScope()}`);
     }
 
     // Step 2: Filter symbols to find exact matches
@@ -77,15 +83,17 @@ export const callHierarchyTool: Tool = {
     }
 
     if (matchingSymbols.length === 0) {
+      // Near-misses exist but nothing matched exactly. The candidates are worth
+      // returning so the caller can correct the name rather than conclude the
+      // symbol does not exist.
       return {
-        error: `No exact match found for "${symbol}"`,
-        suggestions: symbols.slice(0, 5).map((s) => ({
+        ...notFound(symbol, `No exact match for "${symbol}" in ${currentScope()}`),
+        results: symbols.slice(0, 5).map((s) => ({
           name: s.name,
           kind: vscode.SymbolKind[s.kind],
           container: s.containerName,
-          file: s.location.uri.fsPath.split('/').pop(),
+          file: vscode.workspace.asRelativePath(s.location.uri),
         })),
-        hint: 'Found these similar symbols. Try using one of these names exactly.',
       };
     }
 
@@ -222,49 +230,30 @@ export const callHierarchyTool: Tool = {
       results.push(result);
     }
 
-    // Return appropriate format based on number of matches
-    if (results.length === 0) {
-      return {
-        symbol: symbol,
-        message: 'Symbol found but no call hierarchy available',
-        hint: 'This might be an unused function or the language server needs more time to index',
-      };
-    } else if (results.length === 1) {
-      // For single match, return simplified format
-      if (format === 'compact' && results[0].calls.length > 0) {
-        return {
-          ...results[0],
-          callFormat: '[direction, name, kind, filePath, line, locations]',
-          locationFormat: '[line, column]',
-        };
-      }
-      return results[0];
-    } else {
-      // For multiple matches, return all
-      if (format === 'compact') {
-        return {
-          symbol: symbol,
-          multipleMatches: true,
-          callFormat: '[direction, name, kind, filePath, line, locations]',
-          locationFormat: '[line, column]',
-          matches: results,
-          summary: {
-            totalMatches: results.length,
-            totalCalls: results.reduce((sum, r) => sum + r.calls.length, 0),
-          },
-        };
-      } else {
-        return {
-          symbol: symbol,
-          multipleMatches: true,
-          matches: results,
-          summary: {
-            totalMatches: results.length,
-            totalCalls: results.reduce((sum, r) => sum + r.calls.length, 0),
-          },
-        };
-      }
-    }
+    // What the name resolved to; length replaces the old `multipleMatches` flag.
+    const resolved = matchingSymbols.map((s) => ({
+      name: s.name,
+      kind: vscode.SymbolKind[s.kind],
+      container: s.containerName || undefined,
+      file: vscode.workspace.asRelativePath(s.location.uri),
+      line: s.location.range.start.line + 1,
+    }));
+
+    // Note the old wording here claimed an empty hierarchy "might be an unused
+    // function or the language server needs more time" -- two very different
+    // things. If the server were not ready we would not have resolved the symbol
+    // at all, so reaching here with no calls means genuinely no calls.
+    return ok(results, {
+      subject: { requested: symbol, resolved },
+      reason:
+        results.length === 0
+          ? `'${symbol}' was found but has no call hierarchy: nothing calls it and it calls nothing`
+          : undefined,
+      format:
+        format === 'compact'
+          ? 'calls [direction, name, kind, filePath, line, locations]; locations [line, column]'
+          : undefined,
+    });
   },
 };
 

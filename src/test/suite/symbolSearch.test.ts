@@ -33,11 +33,11 @@ suite('Symbol Search Tool Tests', () => {
       kind: 'function',
     });
 
-    assert.ok(result.symbols, 'Should return symbols');
-    assert.ok(result.symbols.length > 0, 'Should find at least one symbol');
+    assert.ok(result.results, 'Should return symbols');
+    assert.ok(result.results.length > 0, 'Should find at least one symbol');
 
     // Should find the add function in math.ts
-    const addFunction = result.symbols.find(
+    const addFunction = result.results.find(
       (sym: any) => sym.name.startsWith('add') && sym.kind === 'Function'
     );
     assert.ok(addFunction, 'Should find add function');
@@ -52,11 +52,11 @@ suite('Symbol Search Tool Tests', () => {
       kind: 'class',
     });
 
-    assert.ok(result.symbols, 'Should return symbols');
-    assert.ok(result.symbols.length > 0, 'Should find at least one symbol');
+    assert.ok(result.results, 'Should return symbols');
+    assert.ok(result.results.length > 0, 'Should find at least one symbol');
 
     // Should find the Calculator class
-    const calculatorClass = result.symbols.find(
+    const calculatorClass = result.results.find(
       (sym: any) => sym.name === 'Calculator' && sym.kind === 'Class'
     );
     assert.ok(calculatorClass, 'Should find Calculator class');
@@ -71,10 +71,10 @@ suite('Symbol Search Tool Tests', () => {
       kind: 'method',
     });
 
-    assert.ok(result.symbols, 'Should return symbols');
+    assert.ok(result.results, 'Should return symbols');
 
     // Should find the getResult method
-    const getResultMethod = result.symbols.find(
+    const getResultMethod = result.results.find(
       (sym: any) => sym.name === 'getResult' && sym.kind === 'Method'
     );
 
@@ -91,13 +91,13 @@ suite('Symbol Search Tool Tests', () => {
       query: 'calc',
     });
 
-    assert.ok(result.symbols, 'Should return symbols');
+    assert.ok(result.results, 'Should return symbols');
 
     // Might find calculateSum function and calc variable
-    const hasResults = result.symbols.length > 0;
+    const hasResults = result.results.length > 0;
     if (hasResults) {
       // Verify we get different kinds of symbols
-      const kinds = new Set(result.symbols.map((sym: any) => sym.kind));
+      const kinds = new Set(result.results.map((sym: any) => sym.kind));
       assert.ok(kinds.size >= 1, 'Should find symbols of different kinds');
     }
   });
@@ -109,8 +109,8 @@ suite('Symbol Search Tool Tests', () => {
       query: 'nonExistentSymbol',
     });
 
-    assert.ok(Array.isArray(result.symbols), 'Should return array');
-    assert.strictEqual(result.symbols.length, 0, 'Should return empty array');
+    assert.ok(Array.isArray(result.results), 'Should return array');
+    assert.strictEqual(result.results.length, 0, 'Should return empty array');
   });
 
   test('should include location information for symbols', async () => {
@@ -121,8 +121,8 @@ suite('Symbol Search Tool Tests', () => {
       kind: 'function',
     });
 
-    assert.ok(result.symbols.length > 0, 'Should find symbols');
-    const firstSymbol = result.symbols[0];
+    assert.ok(result.results.length > 0, 'Should find symbols');
+    const firstSymbol = result.results[0];
 
     // Verify symbol structure
     assert.ok(firstSymbol.name, 'Should have symbol name');
@@ -144,16 +144,16 @@ suite('Symbol Search Tool Tests', () => {
       query: 'calc',
     });
 
-    assert.ok(result.symbols, 'Should return symbols');
+    assert.ok(result.results, 'Should return symbols');
 
     // Should find symbols containing 'calc' like 'Calculator' or 'calculateSum'
-    const matchingSymbols = result.symbols.filter((sym: any) =>
+    const matchingSymbols = result.results.filter((sym: any) =>
       sym.name.toLowerCase().includes('calc')
     );
 
     if (matchingSymbols.length > 0) {
       assert.ok(
-        matchingSymbols.length === result.symbols.length,
+        matchingSymbols.length === result.results.length,
         'All results should contain search query'
       );
     }

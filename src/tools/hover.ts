@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, currentScope, notFound, ok } from './response';
 import { Tool } from './types';
-import { searchWorkspaceSymbols } from './utils/symbolProvider';
+import { anyLanguageInitialized, searchWorkspaceSymbols } from './utils/symbolProvider';
 
 export const hoverTool: Tool = {
   name: 'hover',
@@ -36,10 +37,15 @@ export const hoverTool: Tool = {
     const symbols = await searchWorkspaceSymbols(searchQuery);
 
     if (!symbols || symbols.length === 0) {
-      return {
-        error: `No symbol found with name "${symbol}"`,
-        suggestion: 'Try searching for the exact function/variable name',
-      };
+      // Empty means "no such symbol" or "nothing can answer yet"; only the
+      // first is an answer.
+      if (!anyLanguageInitialized()) {
+        throw new IndeterminateError(
+          `No language server has answered in ${currentScope()} yet, so "${symbol}" cannot ` +
+            'be looked up. Wait for indexing to finish and retry.'
+        );
+      }
+      return notFound(symbol, `No symbol named "${symbol}" in ${currentScope()}`);
     }
 
     // Step 2: Filter symbols to find exact matches
@@ -65,15 +71,17 @@ export const hoverTool: Tool = {
     }
 
     if (matchingSymbols.length === 0) {
+      // Near-misses exist but nothing matched exactly. Still not-found -- the
+      // requested symbol is absent -- but the candidates are worth returning so
+      // the caller can correct the name rather than conclude it does not exist.
       return {
-        error: `No exact match found for "${symbol}"`,
-        suggestions: symbols.slice(0, 5).map((s) => ({
+        ...notFound(symbol, `No exact match for "${symbol}" in ${currentScope()}`),
+        results: symbols.slice(0, 5).map((s) => ({
           name: s.name,
           kind: vscode.SymbolKind[s.kind],
           container: s.containerName,
-          file: s.location.uri.fsPath.split('/').pop(),
+          file: vscode.workspace.asRelativePath(s.location.uri),
         })),
-        hint: 'Found these similar symbols. Try using one of these names exactly.',
       };
     }
 
@@ -149,38 +157,28 @@ export const hoverTool: Tool = {
       }
     }
 
-    // Return appropriate format based on number of matches
-    if (results.length === 0) {
-      return {
-        symbol: symbol,
-        message: 'Symbol found but no hover information available',
-      };
-    } else if (results.length === 1) {
-      // For single match, return simplified format
-      if (format === 'compact') {
-        return {
-          ...results[0],
-          symbolFormat: '[name, kind, filePath, line]',
-        };
-      }
-      return results[0];
-    } else {
-      // For multiple matches, return all
-      if (format === 'compact') {
-        return {
-          symbol: symbol,
-          multipleMatches: true,
-          symbolFormat: '[name, kind, filePath, line]',
-          matches: results,
-        };
-      } else {
-        return {
-          symbol: symbol,
-          multipleMatches: true,
-          matches: results,
-        };
-      }
-    }
+    // What the name resolved to. `multipleMatches` used to say this only in the
+    // plural branch; length says it in every case.
+    const resolved = matchingSymbols.map((s) => ({
+      name: s.name,
+      kind: vscode.SymbolKind[s.kind],
+      container: s.containerName || undefined,
+      file: vscode.workspace.asRelativePath(s.location.uri),
+      line: s.location.range.start.line + 1,
+    }));
+
+    // The symbol resolved but no hover provider had anything to say -- distinct
+    // from the symbol being absent, so `resolved` stays populated.
+    // Both can apply at once; the old ternary made them mutually exclusive, so a
+    // caveat could hide the row layout or vice versa.
+    return ok(results, {
+      subject: { requested: symbol, resolved },
+      reason:
+        results.length === 0
+          ? `'${symbol}' was found but no hover provider returned information for it`
+          : undefined,
+      format: format === 'compact' ? 'symbol [name, kind, filePath, line]' : undefined,
+    });
   },
 };
 

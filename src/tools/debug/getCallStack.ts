@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_getCallStackTool: Tool = {
@@ -36,7 +37,9 @@ export const debug_getCallStackTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is no call stack. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -50,7 +53,10 @@ export const debug_getCallStackTool: Tool = {
         if (threads.length > 0) {
           targetThreadId = threads[0].id;
         } else {
-          return format === 'compact' ? { error: 'no_threads' } : { error: 'No threads available' };
+          throw new IndeterminateError(
+        'The debug session reports no threads, so there is no call stack to read. ' +
+          'This usually means it has not started or is not paused.'
+      );
         }
       }
 
@@ -65,45 +71,51 @@ export const debug_getCallStackTool: Tool = {
 
       if (format === 'compact') {
         // Return compact format: [[name, file, line, column], ...]
-        return {
-          stackFormat: '[name, file, line, column]',
-          stack: frames.map((frame: any) => [
-            frame.name,
-            frame.source?.path ? vscode.workspace.asRelativePath(frame.source.path) : 'unknown',
-            frame.line, // DAP is already 1-based
-            frame.column, // DAP is already 1-based
-          ]),
-          totalFrames: stackResponse.totalFrames || frames.length,
-        };
+        return ok(
+          {
+            stack: frames.map((frame: any) => [
+              frame.name,
+              frame.source?.path ? vscode.workspace.asRelativePath(frame.source.path) : 'unknown',
+              frame.line, // DAP is already 1-based
+              frame.column, // DAP is already 1-based
+            ]),
+            totalFrames: stackResponse.totalFrames || frames.length,
+          },
+          {
+            subject: { requested: `thread ${targetThreadId}` },
+            format: '[name, file, line, column]',
+          }
+        );
       }
 
       // Detailed format
-      return {
-        callStack: frames.map((frame: any) => ({
-          id: frame.id,
-          name: frame.name,
-          source: frame.source
-            ? {
-                path: vscode.workspace.asRelativePath(frame.source.path),
-                name: frame.source.name,
-                line: frame.line, // DAP is already 1-based
-                column: frame.column, // DAP is already 1-based
-              }
-            : null,
-          presentationHint: frame.presentationHint,
-        })),
-        totalFrames: stackResponse.totalFrames || frames.length,
-        threadId: targetThreadId,
-      };
+      return ok(
+        {
+          callStack: frames.map((frame: any) => ({
+            id: frame.id,
+            name: frame.name,
+            source: frame.source
+              ? {
+                  path: vscode.workspace.asRelativePath(frame.source.path),
+                  name: frame.source.name,
+                  line: frame.line, // DAP is already 1-based
+                  column: frame.column, // DAP is already 1-based
+                }
+              : null,
+            presentationHint: frame.presentationHint,
+          })),
+          totalFrames: stackResponse.totalFrames || frames.length,
+          threadId: targetThreadId,
+        },
+        { subject: { requested: `thread ${targetThreadId}` } }
+      );
     } catch (error: any) {
-      if (format === 'compact') {
-        return { error: 'stack_failed', message: error.message };
+      // An IndeterminateError from inside the try is a precondition failure, not a
+      // fault -- rethrow it so it stays distinguishable instead of being flattened.
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-      return {
-        error: 'Failed to get call stack',
-        details: error.message,
-        hint: 'Ensure the debugger is paused at a breakpoint',
-      };
+      throw new Error(`Failed to read the call stack: ${error?.message ?? String(error)}`);
     }
   },
 };

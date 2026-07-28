@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, notFound, ok } from '../response';
 import { Tool } from '../types';
 import { findSymbolInWorkspace } from '../utils/symbolProvider';
 
@@ -34,9 +35,7 @@ export const debug_toggleBreakpointTool: Tool = {
 
     // Validate input
     if (!symbol && (!file || line === undefined)) {
-      return format === 'compact'
-        ? { error: 'missing_params' }
-        : { error: 'Provide either a symbol name or file with line number' };
+      throw new Error('Provide either a symbol name, or a file together with a line number.');
     }
 
     let targetUri: vscode.Uri | undefined;
@@ -47,10 +46,10 @@ export const debug_toggleBreakpointTool: Tool = {
       const symbols = await findSymbolInWorkspace(symbol);
 
       if (symbols.length === 0) {
-        if (format === 'compact') {
-          return { error: 'not_found' };
-        }
-        return { error: `Symbol '${symbol}' not found` };
+        return notFound(
+          symbol,
+          `No symbol named '${symbol}' in ${currentScope()}; no breakpoint was toggled`
+        );
       }
 
       // For toggle, just use the first match
@@ -65,9 +64,10 @@ export const debug_toggleBreakpointTool: Tool = {
 
       const files = await vscode.workspace.findFiles(`**/${file}`);
       if (files.length === 0) {
-        return format === 'compact'
-          ? { error: 'file_not_found' }
-          : { error: `File '${file}' not found in workspace` };
+        return notFound(
+          file,
+          `No file matching '${file}' in ${currentScope()}; no breakpoint was toggled`
+        );
       }
       targetUri = files[0];
     }
@@ -83,46 +83,35 @@ export const debug_toggleBreakpointTool: Tool = {
       return false;
     });
 
-    if (existingBp) {
-      // Remove existing breakpoint
-      vscode.debug.removeBreakpoints([existingBp]);
-      if (format === 'compact') {
-        return {
-          action: 'removed',
-          bpFormat: '[file, line, enabled]',
-          bp: [vscode.workspace.asRelativePath(targetUri!), targetLine! + 1, false],
-        };
-      }
-      return {
-        action: 'removed',
-        breakpoint: {
-          file: vscode.workspace.asRelativePath(targetUri!),
-          line: targetLine! + 1,
-          symbol: symbol || undefined,
-        },
-      };
-    } else {
-      // Add new breakpoint
-      const location = new vscode.Location(targetUri!, new vscode.Position(targetLine!, 0));
-      const bp = new vscode.SourceBreakpoint(location, true);
-      vscode.debug.addBreakpoints([bp]);
+    // Enveloped to match the not-found path above; `action` stays in the payload
+    // because "added" versus "removed" is the answer, not a status.
+    const relative = vscode.workspace.asRelativePath(targetUri!);
+    const bpLine = targetLine! + 1;
+    const added = !existingBp;
 
-      if (format === 'compact') {
-        return {
-          action: 'added',
-          bpFormat: '[file, line, enabled]',
-          bp: [vscode.workspace.asRelativePath(targetUri!), targetLine! + 1, true],
-        };
-      }
-      return {
-        action: 'added',
-        breakpoint: {
-          file: vscode.workspace.asRelativePath(targetUri!),
-          line: targetLine! + 1,
-          enabled: true,
-          symbol: symbol || undefined,
-        },
-      };
+    if (existingBp) {
+      vscode.debug.removeBreakpoints([existingBp]);
+    } else {
+      const location = new vscode.Location(targetUri!, new vscode.Position(targetLine!, 0));
+      vscode.debug.addBreakpoints([new vscode.SourceBreakpoint(location, true)]);
     }
+
+    return ok(
+      format === 'compact'
+        ? { action: added ? 'added' : 'removed', bp: [relative, bpLine, added] }
+        : {
+            action: added ? 'added' : 'removed',
+            breakpoint: {
+              file: relative,
+              line: bpLine,
+              ...(added ? { enabled: true } : {}),
+              symbol: symbol || undefined,
+            },
+          },
+      {
+        subject: { requested: symbol ?? `${file}:${line}`, resolved: [`${relative}:${bpLine}`] },
+        format: format === 'compact' ? '[file, line, enabled]' : undefined,
+      }
+    );
   },
 };

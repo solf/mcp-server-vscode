@@ -6,6 +6,11 @@ import { openTestFileWithLanguageServer } from './languageServerReady';
 // Global to track the current test port
 let globalTestPort: number | undefined;
 
+// The bridge under test, kept so callTool() can present its access token. The
+// bridge rejects unauthenticated requests, and these tests are a client of it
+// like any other -- without this every call comes back 401.
+let globalTestBridge: HTTPBridge | undefined;
+
 export interface TestContext {
   httpBridge: HTTPBridge;
   workspaceUri: vscode.Uri;
@@ -18,6 +23,7 @@ export interface TestContext {
 export async function setupTest(): Promise<TestContext> {
   const context = await getSharedTestContext();
   globalTestPort = context.port;
+  globalTestBridge = context.httpBridge;
   return context;
 }
 
@@ -67,6 +73,7 @@ export async function callTool(toolName: string, args: any, context?: TestContex
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': data.length,
+        'x-mcp-token': (context?.httpBridge ?? globalTestBridge)?.getToken() ?? '',
       },
     };
 

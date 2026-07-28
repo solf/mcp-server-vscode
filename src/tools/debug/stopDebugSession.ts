@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, IndeterminateError } from '../response';
 import { Tool } from '../types';
 
 export const debug_stopSessionTool: Tool = {
@@ -21,14 +22,16 @@ export const debug_stopSessionTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is nothing to stop.'
+      );
     }
 
     await vscode.debug.stopDebugging();
 
     if (format === 'compact') {
-      return { stopped: true };
+      return { scope: currentScope(), stopped: true };
     }
-    return { status: 'Debug session stopped', sessionName: session.name };
+    return { scope: currentScope(), status: 'Debug session stopped', sessionName: session.name };
   },
 };

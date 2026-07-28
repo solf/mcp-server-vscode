@@ -5,6 +5,7 @@
 .settings/**
 src/**
 scripts/**
+docs/**
 test/**
 test-workspace/**
 out/test/**

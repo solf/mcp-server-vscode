@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, ok } from './response';
 import { Tool } from './types';
 import { getDocumentSymbols } from './utils/symbolProvider';
 
@@ -136,9 +137,9 @@ export const workspaceSymbolsTool: Tool = {
       // Get workspace folders to filter out external files
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
-        return {
-          error: 'No workspace folder open',
-        };
+        // Nothing to enumerate: an empty result here would say "this workspace
+        // has no symbols" when the truth is there is no workspace.
+        throw new IndeterminateError('No folder is open in this window, so there is nothing to enumerate.');
       }
 
       // Common exclude patterns for external dependencies
@@ -241,31 +242,46 @@ export const workspaceSymbolsTool: Tool = {
         }
       }
 
-      // Return compact or detailed format
-      if (format === 'compact') {
-        return {
-          totalSymbols,
-          symbolFormat: '[fullName, kind, line]', // line is 1-based
-          symbols: symbolsByFile,
-        };
-      } else {
-        // Detailed format with full summary
-        const summary = {
-          totalFiles: Object.keys(symbolsByFile).length,
-          totalSymbols: totalSymbols,
-          byKind: countSymbolsByKind(symbolsByFile),
-          skippedFiles: skippedFiles,
-        };
-
-        return {
-          summary,
-          files: symbolsByFile,
-        };
+      // The cap was silent before: a truncated enumeration was byte-identical to
+      // a complete one, so "these are the symbols" could really mean "these are
+      // the first maxFiles files' worth".
+      const capped = files.length >= maxFiles;
+      const notes: string[] = [];
+      if (capped) {
+        notes.push(
+          `stopped at maxFiles=${maxFiles}; there may be more files not represented here`
+        );
       }
+      if (skippedFiles > 0) {
+        notes.push(`${skippedFiles} file(s) could not be read`);
+      }
+
+      return ok(
+        format === 'compact'
+          ? { totalSymbols, symbols: symbolsByFile }
+          : {
+              summary: {
+                totalFiles: Object.keys(symbolsByFile).length,
+                totalSymbols,
+                byKind: countSymbolsByKind(symbolsByFile),
+                skippedFiles,
+              },
+              files: symbolsByFile,
+            },
+        {
+          subject: { requested: filePattern ?? '(default code patterns)' },
+          complete: !capped && skippedFiles === 0,
+          reason: notes.length > 0 ? notes.join('; ') : undefined,
+          format: format === 'compact' ? '[fullName, kind, line]' : undefined,
+        }
+      );
     } catch (error) {
-      return {
-        error: `Failed to get workspace symbols: ${error}`,
-      };
+      // Rethrow rather than reporting failure as a successful payload; the bridge
+      // turns it into an error the caller can actually see.
+      if (error instanceof IndeterminateError) {
+        throw error;
+      }
+      throw new Error(`Failed to get workspace symbols: ${error}`);
     }
   },
 };

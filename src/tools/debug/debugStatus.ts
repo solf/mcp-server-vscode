@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_statusTool: Tool = {
@@ -31,13 +32,17 @@ export const debug_statusTool: Tool = {
       configurations: configs.map((c) => c.name),
     };
 
-    if (format === 'compact') {
-      return {
-        active: status.isActive,
-        bps: status.breakpointCount,
-        configs: status.configurations.length,
-      };
-    }
-    return { status };
+    // A query about this window's debug state, so it takes the envelope --
+    // `scope` in particular, since "is a session active?" is per-window.
+    return ok(
+      format === 'compact'
+        ? {
+            active: status.isActive,
+            bps: status.breakpointCount,
+            configs: status.configurations.length,
+          }
+        : { status },
+      { subject: { requested: '(debug session state)' } }
+    );
   },
 };

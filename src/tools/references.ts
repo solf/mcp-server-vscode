@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, currentScope, notFound, ok } from './response';
 import { Tool } from './types';
+import { anyLanguageInitialized } from './utils/symbolProvider';
 import {
   searchWorkspaceSymbols,
   getDocumentSymbols,
@@ -53,12 +55,16 @@ async function findReferencesBySymbol(
   const symbols = await searchWorkspaceSymbols(primarySymbol);
 
   if (!symbols || symbols.length === 0) {
-    return {
-      symbol: symbolName,
-      message: `Symbol '${symbolName}' not found in workspace`,
-      references: [],
-      totalReferences: 0,
-    };
+    // An empty symbol list means either "no such symbol" or "nothing can tell
+    // us yet". Only the first is an answer; conflating them is what makes an
+    // unindexed workspace read as an absent symbol.
+    if (!anyLanguageInitialized()) {
+      throw new IndeterminateError(
+        `No language server has answered in ${currentScope()} yet, so '${symbolName}' cannot ` +
+          'be looked up. Wait for indexing to finish and retry.'
+      );
+    }
+    return notFound(symbolName, `No symbol named '${symbolName}' in ${currentScope()}`);
   }
 
   // Filter to find exact matches (not partial)
@@ -176,19 +182,22 @@ async function findReferencesBySymbol(
     }
   }
 
-  // Add format description for compact mode
-  if (format === 'compact' && allReferences.length > 0) {
-    return {
-      symbol: symbolName,
-      totalReferences: allReferences.length,
-      referenceFormat: '[filePath, startLine, startColumn, endLine, endColumn]',
-      references: allReferences,
-    };
-  }
+  // The declarations this name resolved to. Reporting them is what separates
+  // "no such symbol" from "symbol exists and nothing references it" -- opposite
+  // conclusions that used to produce the same empty list. More than one entry
+  // means the name was ambiguous and these results span all of them.
+  const resolved = matchesToUse.map((sym) => ({
+    name: sym.name,
+    container: sym.containerName || undefined,
+    file: vscode.workspace.asRelativePath(sym.location.uri),
+    line: sym.location.range.start.line + 1,
+  }));
 
-  return {
-    symbol: symbolName,
-    totalReferences: allReferences.length,
-    references: allReferences,
-  };
+  return ok(allReferences, {
+    subject: { requested: symbolName, resolved },
+    format:
+      format === 'compact' && allReferences.length > 0
+        ? '[filePath, startLine, startColumn, endLine, endColumn]'
+        : undefined,
+  });
 }

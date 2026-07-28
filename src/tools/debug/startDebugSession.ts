@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, notFound, ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_startSessionTool: Tool = {
@@ -27,36 +28,40 @@ export const debug_startSessionTool: Tool = {
     const configs = vscode.workspace.getConfiguration('launch').get<any[]>('configurations') || [];
 
     if (configs.length === 0) {
-      return format === 'compact'
-        ? { error: 'no_configs' }
-        : { error: 'No debug configurations found in launch.json' };
+      return notFound(
+        configuration ?? '(any)',
+        `No debug configurations exist in launch.json for ${currentScope()}; nothing was started`
+      );
     }
 
     let configToUse = configs[0];
     if (configuration) {
       const found = configs.find((c) => c.name === configuration);
       if (!found) {
-        return format === 'compact'
-          ? { error: 'config_not_found', available: configs.map((c) => c.name) }
-          : {
-              error: `Configuration '${configuration}' not found`,
-              available: configs.map((c) => c.name),
-            };
+        return {
+          ...notFound(
+            configuration,
+            `No debug configuration named '${configuration}' in ${currentScope()}; nothing was started`
+          ),
+          results: configs.map((c) => c.name),
+        };
       }
       configToUse = found;
     }
 
-    const success = await vscode.debug.startDebugging(undefined, configToUse);
+    const started = await vscode.debug.startDebugging(undefined, configToUse);
 
-    if (format === 'compact') {
-      return { started: success, config: configToUse.name };
-    }
-    return {
-      success,
-      session: {
-        name: configToUse.name,
-        type: configToUse.type,
-      },
-    };
+    // Enveloped to match the not-found path above. Note `started` is kept in the
+    // payload: VS Code can decline to start a configuration without throwing, so
+    // "the tool ran" and "the session started" are different facts.
+    return ok(
+      format === 'compact'
+        ? { started, config: configToUse.name }
+        : { started, session: { name: configToUse.name, type: configToUse.type } },
+      {
+        subject: { requested: configuration ?? '(first configuration)', resolved: [configToUse.name] },
+        ...(started ? {} : { reason: 'VS Code did not start the configuration' }),
+      }
+    );
   },
 };

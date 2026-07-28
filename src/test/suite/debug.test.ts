@@ -57,11 +57,11 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(Array.isArray(result.breakpoints), 'Should return array of breakpoints');
-    assert.strictEqual(result.breakpoints.length, 2, 'Should have 2 breakpoints');
+    assert.ok(Array.isArray(result.results.breakpoints), 'Should return array of breakpoints');
+    assert.strictEqual(result.results.breakpoints.length, 2, 'Should have 2 breakpoints');
 
     // Check breakpoint structure
-    const firstBp = result.breakpoints[0];
+    const firstBp = result.results.breakpoints[0];
     assert.ok(firstBp.file.endsWith('app.ts'), 'Should include file name');
     assert.strictEqual(firstBp.line, 5, 'Should have correct line number (1-based)');
   });
@@ -82,8 +82,12 @@ suite('Debug Tools Tests', () => {
       format: 'detailed',
     });
 
+    // debug_clearBreakpoints is a command, not a query, so it stays raw and its
+    // `status` describes the action -- see the shape-C exception in
+    // docs/response-contract.md. It does carry `scope`.
     assert.ok(!result.error, 'Should not have error');
     assert.strictEqual(result.status, 'All breakpoints cleared', 'Should confirm cleared');
+    assert.ok(result.scope, 'Commands must still say which window acted');
     assert.strictEqual(vscode.debug.breakpoints.length, 0, 'Should have no breakpoints');
   });
 
@@ -97,10 +101,10 @@ suite('Debug Tools Tests', () => {
 
     console.log('Set breakpoint by symbol result:', JSON.stringify(result, null, 2));
     assert.ok(!result.error, `Should not have error: ${result.error}`);
-    assert.ok(result.breakpoint, 'Should return breakpoint info');
-    assert.strictEqual(result.breakpoint.symbol, 'calculateSum', 'Should have symbol name');
-    assert.ok(result.breakpoint.file.endsWith('app.ts'), 'Should be in app.ts');
-    assert.ok(typeof result.breakpoint.line === 'number', 'Should have line number');
+    assert.ok(result.results.breakpoint, 'Should return breakpoint info');
+    assert.strictEqual(result.results.breakpoint.symbol, 'calculateSum', 'Should have symbol name');
+    assert.ok(result.results.breakpoint.file.endsWith('app.ts'), 'Should be in app.ts');
+    assert.ok(typeof result.results.breakpoint.line === 'number', 'Should have line number');
 
     // Verify breakpoint exists
     const breakpoints = vscode.debug.breakpoints;
@@ -117,8 +121,8 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.breakpoint, 'Should return breakpoint info');
-    assert.strictEqual(result.breakpoint.condition, 'numbers.length > 5', 'Should have condition');
+    assert.ok(result.results.breakpoint, 'Should return breakpoint info');
+    assert.strictEqual(result.results.breakpoint.condition, 'numbers.length > 5', 'Should have condition');
 
     // Verify breakpoint has condition
     const bp = vscode.debug.breakpoints[0] as vscode.SourceBreakpoint;
@@ -135,9 +139,9 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.breakpoint, 'Should return breakpoint info');
-    assert.ok(result.breakpoint.file.endsWith('app.ts'), 'Should be in app.ts');
-    assert.strictEqual(result.breakpoint.line, 9, 'Should have correct line');
+    assert.ok(result.results.breakpoint, 'Should return breakpoint info');
+    assert.ok(result.results.breakpoint.file.endsWith('app.ts'), 'Should be in app.ts');
+    assert.strictEqual(result.results.breakpoint.line, 9, 'Should have correct line');
   });
 
   test('should handle symbol not found', async () => {
@@ -148,10 +152,14 @@ suite('Debug Tools Tests', () => {
       format: 'detailed',
     });
 
-    assert.ok(result.error, 'Should have error');
-    assert.ok(result.error.includes('not found'), 'Should mention symbol not found');
-    assert.ok(result.suggestions, 'Should provide suggestions');
-    assert.ok(Array.isArray(result.suggestions), 'Suggestions should be array');
+    // No breakpoint was set, and the response says so outright rather than
+    // leaving the caller to infer it. Near-misses come back as results.
+    assert.strictEqual(result.status, 'not-found', 'Absent symbol must be not-found');
+    assert.ok(
+      result.reason.includes('no breakpoint was set'),
+      'Must state that nothing was set'
+    );
+    assert.ok(Array.isArray(result.results), 'Candidates should be an array');
   });
 
   test('should toggle breakpoint', async () => {
@@ -164,7 +172,7 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result1.error, 'Should not have error');
-    assert.strictEqual(result1.action, 'added', 'Should add breakpoint');
+    assert.strictEqual(result1.results.action, 'added', 'Should add breakpoint');
     assert.strictEqual(vscode.debug.breakpoints.length, 1, 'Should have 1 breakpoint');
 
     // Second call should remove breakpoint
@@ -174,7 +182,7 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result2.error, 'Should not have error');
-    assert.strictEqual(result2.action, 'removed', 'Should remove breakpoint');
+    assert.strictEqual(result2.results.action, 'removed', 'Should remove breakpoint');
     assert.strictEqual(vscode.debug.breakpoints.length, 0, 'Should have 0 breakpoints');
   });
 
@@ -196,12 +204,12 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.bpFormat, 'Should include format description');
-    assert.ok(result.bpFormat.includes('condition?'), 'Format should indicate optional condition');
-    assert.ok(result.bps, 'Should have breakpoints array');
+    assert.ok(result.format, 'Should include format description');
+    assert.ok(result.format.includes('condition?'), 'Format should indicate optional condition');
+    assert.ok(result.results.bps, 'Should have breakpoints array');
 
     // Find the breakpoint with condition
-    const bpWithCondition = result.bps.find((bp: any) => bp.length === 4);
+    const bpWithCondition = result.results.bps.find((bp: any) => bp.length === 4);
     assert.ok(bpWithCondition, 'Should have breakpoint with condition');
     assert.strictEqual(
       bpWithCondition[3].condition,
@@ -216,10 +224,10 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(Array.isArray(result.configurations), 'Should return array of configurations');
-    assert.ok(result.configurations.length > 0, 'Should have at least one configuration');
+    assert.ok(Array.isArray(result.results.configurations), 'Should return array of configurations');
+    assert.ok(result.results.configurations.length > 0, 'Should have at least one configuration');
 
-    const config = result.configurations[0];
+    const config = result.results.configurations[0];
     assert.ok(config.name, 'Configuration should have name');
     assert.ok(config.type, 'Configuration should have type');
   });
@@ -230,10 +238,11 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.status, 'Should have status object');
-    assert.ok(typeof result.status.isActive === 'boolean', 'Should have isActive flag');
-    assert.ok(typeof result.status.breakpointCount === 'number', 'Should have breakpoint count');
-    assert.ok(Array.isArray(result.status.configurations), 'Should have configurations list');
+    assert.strictEqual(result.status, 'ok', 'Envelope status');
+    assert.ok(result.results.status, 'Should have status object');
+    assert.ok(typeof result.results.status.isActive === 'boolean', 'Should have isActive flag');
+    assert.ok(typeof result.results.status.breakpointCount === 'number', 'Should have breakpoint count');
+    assert.ok(Array.isArray(result.results.status.configurations), 'Should have configurations list');
   });
 
   test('should handle compact format', async () => {
@@ -245,57 +254,50 @@ suite('Debug Tools Tests', () => {
     });
 
     assert.ok(!result.error, 'Should not have error');
-    assert.ok(result.bpFormat, 'Should include format description');
-    assert.strictEqual(result.bpFormat, '[file, line, enabled]', 'Should describe array format');
-    assert.ok(result.bp, 'Should have compact breakpoint info');
-    assert.ok(Array.isArray(result.bp), 'Compact format should be array');
-    assert.strictEqual(result.bp.length, 3, 'Should have [file, line, enabled]');
-    assert.ok(result.bp[0].endsWith('app.ts'), 'First element should be file');
-    assert.ok(typeof result.bp[1] === 'number', 'Second element should be line number');
-    assert.strictEqual(result.bp[2], true, 'Third element should be enabled status');
+    assert.ok(result.format, 'Should include format description');
+    assert.strictEqual(result.format, '[file, line, enabled]', 'Should describe array format');
+    assert.ok(result.results.bp, 'Should have compact breakpoint info');
+    assert.ok(Array.isArray(result.results.bp), 'Compact format should be array');
+    assert.strictEqual(result.results.bp.length, 3, 'Should have [file, line, enabled]');
+    assert.ok(result.results.bp[0].endsWith('app.ts'), 'First element should be file');
+    assert.ok(typeof result.results.bp[1] === 'number', 'Second element should be line number');
+    assert.strictEqual(result.results.bp[2], true, 'Third element should be enabled status');
   });
 
   test('should validate input parameters', async () => {
     // Test missing required parameters for setBreakpoint
-    const result = await callTool('debug_setBreakpoint', {
-      format: 'detailed',
-    } as any);
-
-    console.log('Missing required parameters result:', result);
-    assert.ok(result.error, 'Should have error for missing parameters');
-    assert.ok(
-      result.error.toLowerCase().includes('required') ||
-        result.error.toLowerCase().includes('oneof') ||
-        result.error.toLowerCase().includes('must have') ||
-        result.error.toLowerCase().includes('provide'),
-      'Should mention required parameters'
+    // Neither `symbol` nor `file`+`line` was given. The schema cannot express
+    // "one of these two", so the tool checks it itself and throws -- which
+    // reaches the caller as a rejection, not a payload that merely mentions an
+    // error and could be mistaken for a result.
+    await assert.rejects(
+      () => callTool('debug_setBreakpoint', { format: 'detailed' } as any),
+      (err: Error) => /Provide either a symbol name/.test(err.message),
+      'Missing parameters must reject rather than return'
     );
   });
 
   test('should handle multiple symbols with same name', async () => {
     await openTestFile('math.ts');
 
-    // 'add' exists as both a function and a method
-    const result = await callTool('debug_setBreakpoint', {
-      symbol: 'add',
-      format: 'detailed',
-    });
+    // 'add' exists as both a function and a method. Setting a breakpoint mutates
+    // state, so an ambiguous name is refused rather than resolved by guessing --
+    // the old behaviour returned match details in a success-shaped payload, and
+    // "no breakpoint was set" was easy to miss.
+    await assert.rejects(
+      () => callTool('debug_setBreakpoint', { symbol: 'add', format: 'detailed' }),
+      (err: Error) =>
+        /matches \d+ symbols/.test(err.message) &&
+        /no breakpoint\s+was set/.test(err.message) &&
+        /qualified name/.test(err.message),
+      'Ambiguous symbol must refuse, list candidates, and say how to disambiguate'
+    );
 
-    if (result.multipleMatches) {
-      assert.ok(Array.isArray(result.matches), 'Should provide matches array');
-      assert.ok(result.matches.length > 1, 'Should have multiple matches');
-
-      // Each match should have enough info to distinguish
-      result.matches.forEach((match: any) => {
-        assert.ok(match.symbol, 'Should have symbol info');
-        assert.ok(match.file, 'Should have file info');
-        assert.ok(match.kind, 'Should have kind (function/method)');
-        assert.ok(match.container || match.container === '', 'Should have container info');
-      });
-    } else {
-      // If it picked one, that's also acceptable
-      assert.ok(result.breakpoint, 'Should have set a breakpoint');
-    }
+    assert.strictEqual(
+      vscode.debug.breakpoints.length,
+      0,
+      'Refusing must leave no breakpoint behind'
+    );
   });
 
   // Skip debug session tests for now as they require more setup

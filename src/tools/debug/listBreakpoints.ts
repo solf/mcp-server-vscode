@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_listBreakpointsTool: Tool = {
@@ -34,24 +35,24 @@ export const debug_listBreakpointsTool: Tool = {
         };
       });
 
-    if (format === 'compact') {
-      // Return minimal info with 0-based line numbers for AI
-      return {
-        bpFormat: '[file, line, enabled, condition?]',
-        bps: breakpoints.map((bp) => {
-          const result: any[] = [bp.file, bp.line, bp.enabled];
-          // Only add condition info if it exists
-          if (bp.condition || bp.hitCondition || bp.logMessage) {
-            result.push({
-              condition: bp.condition,
-              hitCondition: bp.hitCondition,
-              logMessage: bp.logMessage,
-            });
-          }
-          return result;
-        }),
-      };
-    }
-    return { breakpoints };
+    // An enumeration: nothing can be "not found", so an empty list is a real
+    // answer -- but only once `scope` says which window has no breakpoints.
+    const compact = breakpoints.map((bp) => {
+      const row: any[] = [bp.file, bp.line, bp.enabled];
+      // Only add condition info if it exists
+      if (bp.condition || bp.hitCondition || bp.logMessage) {
+        row.push({
+          condition: bp.condition,
+          hitCondition: bp.hitCondition,
+          logMessage: bp.logMessage,
+        });
+      }
+      return row;
+    });
+
+    return ok(format === 'compact' ? { bps: compact } : { breakpoints }, {
+      subject: { requested: '(all breakpoints)' },
+      format: format === 'compact' ? '[file, line, enabled, condition?]' : undefined,
+    });
   },
 };

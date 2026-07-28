@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ok } from '../response';
 import { Tool } from '../types';
 
 export const debug_listConfigurationsTool: Tool = {
@@ -21,20 +22,24 @@ export const debug_listConfigurationsTool: Tool = {
 
     const configs = vscode.workspace.getConfiguration('launch').get<any[]>('configurations') || [];
 
-    if (format === 'compact') {
-      // Return just names and types
-      return {
-        configFormat: '[name, type]',
-        configs: configs.map((c) => [c.name, c.type]),
-      };
-    }
-    return {
-      configurations: configs.map((c) => ({
-        name: c.name,
-        type: c.type,
-        request: c.request,
-        program: c.program,
-      })),
-    };
+    // Enumeration of what launch.json declares. Empty is a real answer, and
+    // `scope` says whose launch.json was read -- which matters once each window
+    // serves its own workspace.
+    return ok(
+      format === 'compact'
+        ? { configs: configs.map((c) => [c.name, c.type]) }
+        : {
+            configurations: configs.map((c) => ({
+              name: c.name,
+              type: c.type,
+              request: c.request,
+              program: c.program,
+            })),
+          },
+      {
+        subject: { requested: '(launch.json configurations)' },
+        format: format === 'compact' ? '[name, type]' : undefined,
+      }
+    );
   },
 };

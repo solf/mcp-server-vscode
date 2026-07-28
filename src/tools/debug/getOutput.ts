@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { IndeterminateError, ok } from '../response';
 import { Tool } from '../types';
 import { debugOutputTracker } from '../../services/debugOutputTracker';
 
@@ -38,7 +39,9 @@ export const debug_getOutputTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is no debug output. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -53,72 +56,68 @@ export const debug_getOutputTool: Tool = {
         filter,
       });
 
-      // Check if integratedTerminal is being used and no output captured
+      // With integratedTerminal the program's output goes to a separate terminal
+      // that this API cannot see. Returning an empty list would assert "there was
+      // no output", which is not what we know -- we know we cannot observe it.
       if (consoleType === 'integratedTerminal' && outputs.length === 0) {
-        if (format === 'compact') {
-          return {
-            warning: 'integrated_terminal',
-            console: consoleType,
-            outputs: [],
-            total: 0,
-            help: 'Set "console": "internalConsole" in launch.json',
-          };
-        }
-        return {
-          warning: 'Output capture not available for integratedTerminal',
-          explanation:
-            'The debug session is using integratedTerminal which outputs to a separate terminal window. Output capture only works with internalConsole.',
-          suggestion:
-            'To capture output, modify your launch.json configuration:\n"console": "internalConsole"',
-          currentConfig: {
-            console: consoleType,
-            sessionName: session.name,
-            sessionType: session.type,
-          },
-          outputs: [],
-          total: 0,
-        };
+        throw new IndeterminateError(
+          `Session '${session.name}' uses "console": "integratedTerminal", whose output goes to a ` +
+            'separate terminal and cannot be captured here, so an empty result would not mean ' +
+            '"no output". Set "console": "internalConsole" in launch.json to make it readable.'
+        );
       }
 
       if (format === 'compact') {
         // Return compact format: [[category, text], ...]
-        return {
-          outputFormat: '[category, text]',
-          outputs: outputs.map((o) => [o.category, o.output.trim()]),
-          total: outputs.length,
-          session: session.name,
-          console: consoleType,
-        };
+        return ok(
+          {
+            outputs: outputs.map((o) => [o.category, o.output.trim()]),
+            total: outputs.length,
+            session: session.name,
+            console: consoleType,
+          },
+          {
+            subject: { requested: `${category} output of '${session.name}'` },
+            format: '[category, text]',
+          }
+        );
       }
 
       // Detailed format
-      return {
-        outputs: outputs.map((o) => ({
-          timestamp: new Date(o.timestamp).toISOString(),
-          category: o.category,
-          text: o.output,
-        })),
-        total: outputs.length,
-        session: {
-          id: session.id,
-          name: session.name,
-          type: session.type,
-          console: consoleType,
+      return ok(
+        {
+          outputs: outputs.map((o) => ({
+            timestamp: new Date(o.timestamp).toISOString(),
+            category: o.category,
+            text: o.output,
+          })),
+          total: outputs.length,
+          session: {
+            id: session.id,
+            name: session.name,
+            type: session.type,
+            console: consoleType,
+          },
+          filter: {
+            category,
+            limit,
+            textFilter: filter,
+          },
         },
-        filter: {
-          category,
-          limit,
-          textFilter: filter,
-        },
-      };
+        {
+          subject: { requested: `${category} output of '${session.name}'` },
+          // The limit is a cap: hitting it exactly means there may well be more.
+          complete: outputs.length < limit,
+          ...(outputs.length >= limit ? { reason: `capped at limit=${limit}` } : {}),
+        }
+      );
     } catch (error: any) {
-      if (format === 'compact') {
-        return { error: 'output_failed', message: error.message };
+      // An IndeterminateError from inside the try is a precondition failure, not a
+      // fault -- rethrow it so it stays distinguishable instead of being flattened.
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-      return {
-        error: 'Failed to get debug output',
-        details: error.message,
-      };
+      throw new Error(`Failed to read debug output: ${error?.message ?? String(error)}`);
     }
   },
 };

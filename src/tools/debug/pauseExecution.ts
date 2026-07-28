@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { currentScope, IndeterminateError } from '../response';
 import { Tool } from '../types';
 
 export const debug_pauseExecutionTool: Tool = {
@@ -25,7 +26,9 @@ export const debug_pauseExecutionTool: Tool = {
 
     const session = vscode.debug.activeDebugSession;
     if (!session) {
-      return format === 'compact' ? { error: 'no_session' } : { error: 'No active debug session' };
+      throw new IndeterminateError(
+        'No active debug session, so there is nothing to pause. Start one with debug_startSession.'
+      );
     }
 
     try {
@@ -40,9 +43,10 @@ export const debug_pauseExecutionTool: Tool = {
         }
 
         if (format === 'compact') {
-          return { paused: true, threads: threads.length };
+          return { scope: currentScope(), paused: true, threads: threads.length };
         }
         return {
+          scope: currentScope(),
           status: 'Paused execution',
           pausedThreads: threads.map((t: any) => ({ id: t.id, name: t.name })),
         };
@@ -51,21 +55,21 @@ export const debug_pauseExecutionTool: Tool = {
         await session.customRequest('pause', { threadId });
 
         if (format === 'compact') {
-          return { paused: true, thread: threadId };
+          return { scope: currentScope(), paused: true, thread: threadId };
         }
         return {
+          scope: currentScope(),
           status: 'Paused execution',
           threadId,
         };
       }
     } catch (error: any) {
-      if (format === 'compact') {
-        return { error: 'pause_failed', message: error.message };
+      // An IndeterminateError from inside the try is a precondition failure, not a
+      // fault -- rethrow it so it stays distinguishable instead of being flattened.
+      if (error instanceof IndeterminateError) {
+        throw error;
       }
-      return {
-        error: 'Failed to pause execution',
-        details: error.message,
-      };
+      throw new Error(`Failed to pause execution: ${error?.message ?? String(error)}`);
     }
   },
 };
