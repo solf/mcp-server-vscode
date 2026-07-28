@@ -98,11 +98,25 @@ In `~/.cursor/mcp.json` (or a project's `.cursor/mcp.json`):
   "mcpServers": {
     "vscode": {
       "command": "npx",
-      "args": ["--yes", "github:solf/mcp-server-vscode#v0.3.0"]
+      "args": ["--yes", "github:solf/mcp-server-vscode#v0.3.0"],
+      "env": {
+        "VSCODE_TOOL_ALLOW": "hover,definition,references,callHierarchy,symbolSearch,workspaceSymbols,diagnostics,refactor_rename"
+      }
     }
   }
 }
 ```
+
+**Why the allowlist here.** Cursor caps the number of tools it sends to the model at roughly 40, and that cap is shared across *every* configured MCP server rather than applied per server. Past it the surplus tools are silently unreachable — they look configured and simply never get used.
+
+This extension offers 25 tools, so unfiltered it takes most of that budget on its own, and 17 of the 25 are debug tools a normal editing session never touches. The allowlist above exposes the seven language-intelligence tools plus `refactor_rename` — 8 instead of 25 — leaving room for your other servers. Drop `refactor_rename` for a read-only set, or omit `VSCODE_TOOL_ALLOW` entirely to expose everything.
+
+> **This number may be stale.** The ~40 figure comes from Cursor community
+> reports rather than a versioned official reference; it may have changed since,
+> or differ in your build. Treat it as a reason to keep the exposed set small
+> rather than an exact budget to fill. The Claude Desktop and Claude Code
+> configurations above deliberately omit the variable — no comparable limit
+> applies there.
 
 ### Alternative: a local runner directory
 
@@ -135,7 +149,7 @@ This deliberately copies rather than pointing at the repo's `out/`: otherwise a 
 | Variable | Effect |
 |---|---|
 | `VSCODE_BRIDGE_PORT` | Force the client at one specific window, bypassing discovery. |
-| `VSCODE_TOOL_ALLOW` | Comma-separated allowlist of tool names; everything else is hidden and refused. |
+| `VSCODE_TOOL_ALLOW` | Comma-separated allowlist of tool names; everything else is hidden from `tools/list` and refused if called by name anyway. Unset or empty exposes all 25. A name the server does not offer is reported as a warning at startup, so a typo does not quietly shrink the set. See [Cursor](#cursor) for why you may want this. |
 
 ## Usage
 
