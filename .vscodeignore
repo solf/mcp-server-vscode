@@ -18,5 +18,5 @@ out/test/**
 tsconfig.json
 node_modules/**
 **/*.ts
-!**/*.d.ts
+!out/**/*.d.ts
 .yarnrc
