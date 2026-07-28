@@ -2,6 +2,8 @@
 
 A VS Code extension that provides a Model Context Protocol (MCP) server, enabling AI assistants to interact with your VS Code environment for language intelligence, debugging, and code execution.
 
+> Fork of [malvex/mcp-server-vscode](https://github.com/malvex/mcp-server-vscode), which is no longer maintained. Published under the `solf` publisher ID so marketplace updates can never overwrite it. See [What this fork changes](#what-this-fork-changes).
+
 ## Features
 
 - **Language Intelligence**: Access VS Code's language server features including:
@@ -20,19 +22,50 @@ A VS Code extension that provides a Model Context Protocol (MCP) server, enablin
   - Inspect variables and call stacks
   - Evaluate expressions in debug context
 
+- **Multiple windows at once**: Every window runs its own server on its own port and is discoverable, so several projects can be open and each AI session talks to the right one.
+
+## What this fork changes
+
+- **Per-window routing.** Upstream used one fixed port (8991), so the first window to start claimed it and every client reached that window regardless of which project it was launched from — silently returning correct-looking answers about the wrong codebase. Each window now binds an ephemeral port and publishes itself to a discovery registry; the client resolves the right one, or fails loudly listing what is available.
+- **Loopback-only, token-authenticated bridge.** The HTTP API previously listened with wildcard CORS, so any web page you visited could drive your editor. It now binds loopback only, requires a per-start 256-bit token, and rejects any request carrying an `Origin` header.
+- **A response contract.** Every tool answers in one envelope (`subject`, `scope`, `status`, `complete`, `reason`, `format`, `results`). An empty result no longer conflates "nothing matched" with "nothing could answer" — the latter is raised as an error instead of returned as data. See [docs/response-contract.md](docs/response-contract.md).
+- **No auto-opened editor tabs.** Cold start used to force three arbitrary workspace files open as permanent tabs.
+
 ## Installation
 
-### Alpha Testing
+Two pieces, and they are separate on purpose: the **extension** runs inside VS Code, and the **client** is a small stdio server your AI tool launches. They talk over a private HTTP API on loopback.
 
-**Step 1: Install VS Code Extension**
+### Step 1: Install the extension
 
-Download the `.vsix` file from [Releases](https://github.com/malvex/mcp-server-vscode/releases) and install:
-- In VS Code: Extensions → `...` menu → Install from VSIX
-- Or via command line: `code --install-extension mcp-server-vscode-*.vsix`
+Download `mcp-server-vscode-0.3.0.vsix` from [Releases](https://github.com/solf/mcp-server-vscode/releases), then:
 
-**Step 2: Configure Claude Desktop**
+```bash
+code --install-extension mcp-server-vscode-0.3.0.vsix
+# Cursor:
+cursor --install-extension mcp-server-vscode-0.3.0.vsix
+```
 
-The MCP server runs directly from GitHub using npx. Add this to your Claude config:
+Or in the UI: Extensions → `...` menu → Install from VSIX.
+
+**Reload the window afterwards.** An installed vsix does not take effect until the extension host restarts, so a freshly installed build is not the one running until you reload. Once loaded, the status bar (bottom right) shows the port it bound.
+
+### Step 2: Configure the client
+
+Pick one of the two forms below. Both run the same client; they differ in what happens when the repo moves on.
+
+```bash
+# Pinned to a release -- recommended
+npx --yes github:solf/mcp-server-vscode#v0.3.0
+
+# Latest master
+npx --yes github:solf/mcp-server-vscode
+```
+
+**Prefer the pinned form.** The client and the extension speak a private HTTP API with no compatibility guarantee across versions. Pinning the client to the same tag as your installed vsix keeps the two in step; tracking master means an unrelated push can change the client under a vsix you installed weeks ago.
+
+First run compiles from source, so expect it to take a while; later runs are cached.
+
+#### Claude Desktop
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -42,58 +75,111 @@ The MCP server runs directly from GitHub using npx. Add this to your Claude conf
   "mcpServers": {
     "vscode": {
       "command": "npx",
-      "args": ["github:malvex/mcp-server-vscode"]
+      "args": ["--yes", "github:solf/mcp-server-vscode#v0.3.0"]
     }
   }
 }
 ```
 
-**Step 3: Restart Claude Desktop**
+Restart Claude Desktop afterwards.
 
-That's it! The VS Code tools are now available in Claude.
-
-### Configure Claude Code (CLI)
-
-For Claude Code users, run this one-liner:
+#### Claude Code (CLI)
 
 ```bash
-claude mcp add-json vscode '{"type":"stdio","command":"npx","args":["github:malvex/mcp-server-vscode"]}' -s user
+claude mcp add-json vscode '{"type":"stdio","command":"npx","args":["--yes","github:solf/mcp-server-vscode#v0.3.0"]}' -s user
 ```
+
+#### Cursor
+
+In `~/.cursor/mcp.json` (or a project's `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "vscode": {
+      "command": "npx",
+      "args": ["--yes", "github:solf/mcp-server-vscode#v0.3.0"]
+    }
+  }
+}
+```
+
+### Alternative: a local runner directory
+
+If you would rather not hit the network on every start — or you are developing the fork — deploy the client to a standalone directory and point configs at that:
+
+```bash
+mkdir /path/to/runner && cd /path/to/runner
+npm install @modelcontextprotocol/sdk
+
+# from a clone of this repo:
+npm run compile
+npm run deploy:client -- /path/to/runner
+```
+
+```json
+{
+  "mcpServers": {
+    "vscode": {
+      "command": "node",
+      "args": ["/path/to/runner/standalone-server.js"]
+    }
+  }
+}
+```
+
+This deliberately copies rather than pointing at the repo's `out/`: otherwise a half-finished refactor, an older checkout, or an `npm ci` (which deletes `node_modules`) would take MCP down in every open window.
+
+### Optional environment variables
+
+| Variable | Effect |
+|---|---|
+| `VSCODE_BRIDGE_PORT` | Force the client at one specific window, bypassing discovery. |
+| `VSCODE_TOOL_ALLOW` | Comma-separated allowlist of tool names; everything else is hidden and refused. |
 
 ## Usage
 
-Once installed, the extension shows the MCP server status in the VS Code status bar (bottom right).
-
-**To start the MCP server**: Click on "VS Code MCP: Stopped" in the status bar. It will change to "VS Code MCP: 8991" when running.
+The server starts automatically when a window opens (`vscode-mcp.autoStart`, default on) and shows its status in the VS Code status bar (bottom right).
 
 The status bar indicates:
-- **VS Code MCP: 8991** - Server is running on port 8991
-- **VS Code MCP: Stopped** - Server is not running
+- **VS Code MCP: 51877** - running, on the port it bound
+- **VS Code MCP: Stopped** - not running
 
 Click the status bar item to toggle the server on/off.
+
+Each window binds its **own** port, chosen by the OS. Set `vscode-mcp.port` to a fixed number only if you need one — startup then fails outright if that port is taken, rather than quietly moving to another and answering for the wrong window.
 
 ### How It Works
 
 ```
-┌─────────────┐     stdio      ┌──────────────────┐     HTTP      ┌─────────────┐
-│   Claude    │ ◄────────────► │  MCP Standalone  │ ◄───────────► │   VS Code   │
-│   Desktop   │                │      Server      │    :8991      │  Extension  │
-└─────────────┘                └──────────────────┘               └─────────────┘
+┌─────────────┐     stdio      ┌──────────────────┐     HTTP       ┌─────────────┐
+│   Claude /  │ ◄────────────► │  MCP Standalone  │ ◄────────────► │   VS Code   │
+│   Cursor    │                │  Server (client) │  127.0.0.1     │  Extension  │
+└─────────────┘                └────────┬─────────┘  ephemeral     └──────┬──────┘
+                                        │              + token            │
+                                        │                                 │
+                                        │   ~/.vscode-mcp/instances/*.json│
+                                        └────────────◄────────────────────┘
+                                              discovery registry
 ```
 
-1. **VS Code Extension** provides an HTTP API on port 8991
-2. **MCP Standalone Server** acts as a bridge, converting stdio ↔ HTTP
-3. **Claude Desktop** communicates with the standalone server via stdio
+1. **The extension** binds a loopback port per window and publishes `{pid, port, token, folders, version}` to the registry.
+2. **The client** resolves which window it belongs to — `VSCODE_BRIDGE_PORT`, else the VS Code process that launched it, else a workspace-folder match — and fails loudly, listing live windows, if it cannot tell.
+3. **Your AI tool** talks to the client over stdio.
+
+Every tool response carries a `scope` field naming the window that answered, so a misroute is visible rather than silent.
 
 ### Troubleshooting
 
-If Claude can't connect to VS Code:
+If your AI tool can't connect to VS Code:
 
-1. **Check VS Code is running** with the extension active
-2. **Check the status bar** shows "VS Code MCP: 8991"
-3. **Test the MCP server**: Run `npx github:malvex/mcp-server-vscode` in terminal
-4. **Check firewall** isn't blocking localhost:8991
-5. **Try manually starting** the MCP server in VS Code (Cmd/Ctrl+Shift+P → "Start MCP Server")
+1. **Check the extension is running** — the status bar should show a port, not "Stopped".
+2. **Check which window answered** — the `scope` field in any tool response names it. If it's the wrong project, the client resolved to another window; set `VSCODE_BRIDGE_PORT` to the port shown in the intended window's status bar.
+3. **Test the client directly**: run `npx --yes github:solf/mcp-server-vscode` in a terminal. It prints which window it connected to and the build timestamp, then waits on stdio.
+4. **Check the build actually loaded** — installing a vsix does not load it. Reload the window and compare the build time the client prints against what you packaged.
+5. **Start it manually** if autostart is off: Cmd/Ctrl+Shift+P → "Start MCP Server".
+
+Empty results are not a connection problem: a tool that cannot answer now says so as an error. An empty `results` with `status: "ok"` means the language server genuinely found nothing.
 
 ### Available Tools
 
@@ -223,19 +309,20 @@ AI uses: debug_evaluateExpression({ expression: "users.length > 0 && isActive" }
 
 ```bash
 # Clone the repository
-git clone https://github.com/malvex/mcp-server-vscode.git
+git clone https://github.com/solf/mcp-server-vscode.git
 cd mcp-server-vscode
 
 # Install dependencies
 npm install
 
-# Build everything
+# Compile, then package the extension
 npm run compile
-npm run package
-
-# Package the VS Code extension
-npx vsce package
+npm run package        # -> mcp-server-vscode-<version>.vsix
 ```
+
+`npm run package` passes `--no-dependencies`, which keeps `node_modules` out of the vsix (~79 KB instead of ~5.7 MB). `.vscodeignore` cannot exclude `node_modules` — only that flag can. The client is deployed separately, so the extension never needs them bundled.
+
+Run the tests with `npm test`. This downloads and launches a real VS Code via `@vscode/test-electron`, so it needs a machine that can run one.
 
 ### Testing Local Changes
 

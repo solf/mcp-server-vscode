@@ -2,7 +2,7 @@
   "name": "mcp-server-vscode",
   "displayName": "MCP Server for VS Code (solf)",
   "description": "VS Code extension that provides an MCP server for AI assistants to interact with your development environment",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "solf",
   "license": "MIT",
   "repository": {
@@ -78,7 +78,7 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "package": "vsce package",
+    "package": "npx --yes @vscode/vsce package --no-dependencies",
     "deploy:client": "node scripts/deploy-client.js",
     "start:mcp": "node ./out/mcp/standalone-server.js"
   },
